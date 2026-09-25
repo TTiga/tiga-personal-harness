@@ -1,4 +1,3 @@
-import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -171,7 +170,6 @@ const harness = await vi.hoisted(async () => {
       }
     }),
   })
-  let accountListener: ((state: AccountView) => void) | undefined
   const nativeTheme = { themeSource: 'system', shouldUseDarkColors: false }
   const trays: FakeTray[] = []
   class FakeTray extends EventEmitter {
@@ -189,11 +187,6 @@ const harness = await vi.hoisted(async () => {
     platformDispose,
     platformCloseAndWait,
 
-    watchAccount: (listener: (state: AccountView) => void) => {
-      accountListener = listener
-      return () => { accountListener = undefined }
-    },
-    publishAccount(state: AccountView) { accountListener?.(state) },
     ipcOn: vi.fn<(channel: string, listener: (event: { sender: unknown; senderFrame: unknown }, ...args: unknown[]) => void) => void>(),
     get updateState() { return updateState },
     set updateState(value: DesktopUpdateState) { updateState = value },
@@ -223,7 +216,6 @@ const harness = await vi.hoisted(async () => {
     set pluginsEnabled(value: boolean) { pluginsEnabled = value },
     set closeWindowsOnQuit(value: boolean) { closeWindowsOnQuit = value },
     reset() {
-      accountListener = undefined
       windows.length = 0; hosts.length = 0; handlers.clear(); app.removeAllListeners()
       trays.length = 0
       backgroundNotice.markerPath = undefined
@@ -341,12 +333,16 @@ vi.mock('../src/platform-view.ts', async importOriginal => ({
     dispose(): Promise<void> { return harness.platformDispose() }
   },
 }))
-vi.mock('../src/welcome-backend.ts', () => ({
-  connectDesktopWelcome: async () => ({
-    readLocalePreference: async () => null,
-    read: async (): Promise<unknown> => (await harness.hosts.at(-1)!.fetch()).json() as Promise<unknown>,
-    save: async () => ({ ok: true }),
-    account: { watch: harness.watchAccount, state: async () => ({ status: 'signed-out', attempt: null }) },
+vi.mock('../src/workspace-bootstrap.ts', () => ({
+  connectWorkspaceBootstrap: async () => ({
+    readLocalePreference: async (): Promise<string | null> => {
+      const value = await (await harness.hosts.at(-1)!.fetch()).json() as { localePreference?: string | null }
+      return value.localePreference ?? null
+    },
+    hasApiKey: async (): Promise<boolean> => {
+      const value = await (await harness.hosts.at(-1)!.fetch()).json() as { hasApiKey?: boolean }
+      return Boolean(value.hasApiKey)
+    },
   }),
 }))
 
@@ -2081,7 +2077,7 @@ describe('desktop main startup', () => {
     expect(harness.hosts).toHaveLength(1)
   })
 
-  it('keeps recovery visible when the backend fails during the welcome preference read', async () => {
+  it('keeps recovery visible when the backend fails during the startup preference read', async () => {
     const preferences = Promise.withResolvers<Response>()
     await import('../src/main.ts')
     await harness.preparing.promise
@@ -2095,7 +2091,7 @@ describe('desktop main startup', () => {
     host.exited.resolve()
     host.onFailure!(new Error('backend exited during startup preferences'))
     await harness.dialogShown.promise
-    preferences.resolve(Response.json({ hasApiKey: true, localePreference: null }))
+    preferences.resolve(Response.json({ localePreference: null }))
     await startup
     expect(harness.windows[0]!.urls).not.toContain('http://127.0.0.1:3080/?token=test')
     const failureDialog = harness.dialog.showMessageBox.mock.calls[0]![0] as { detail: string }
@@ -2122,40 +2118,4 @@ describe('desktop main startup', () => {
     expect(window.urls).toEqual(['dsh-app://app/'])
     expect(harness.windows).toHaveLength(1)
   })
-})
-
-it.each(['failed', 'expired'] as const)('focuses DSH once when browser authorization becomes %s', async (phase) => {
-  await import('../src/main.ts')
-  await harness.preparing.promise
-  harness.prepared.resolve()
-  await harness.hostStarted.promise
-  harness.hosts[0]!.ready.resolve()
-  await Promise.resolve(invoke(DESKTOP_IPC.boot))
-  const window = harness.windows[0]!
-  window.focus.mockClear()
-  const state: AccountView = {
-    status: 'signed-out', links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' },
-    attempt: { id: 'test-failed-attempt' as NonNullable<AccountView['attempt']>['id'], phase },
-  }
-  harness.publishAccount(state)
-  harness.publishAccount(state)
-  expect(window.focus).toHaveBeenCalledTimes(1)
-})
-
-it.each([['light', false], ['dark', true]] as const)('opens Platform authorization in the effective %s palette', async (theme, shouldUseDarkColors) => {
-  await import('../src/main.ts')
-  await harness.preparing.promise
-  harness.prepared.resolve()
-  await harness.hostStarted.promise
-  harness.hosts[0]!.ready.resolve()
-  await Promise.resolve(invoke(DESKTOP_IPC.boot))
-  harness.nativeTheme.shouldUseDarkColors = shouldUseDarkColors
-  const state: AccountView = {
-    status: 'signed-out', links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' },
-    attempt: { id: 'test-theme-attempt' as NonNullable<AccountView['attempt']>['id'], phase: 'waiting-browser',
-      authorizeUrl: 'https://platform.deepseek.com/dsh/authorize?state=state-1' },
-  }
-  harness.publishAccount(state)
-  harness.publishAccount(state)
-  expect(harness.openExternal).toHaveBeenCalledExactlyOnceWith(`https://platform.deepseek.com/dsh/authorize?state=state-1&theme=${theme}`)
 })
