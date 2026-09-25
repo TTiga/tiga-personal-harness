@@ -38,6 +38,16 @@ export function requireBuilt(name: string): unknown {
  */
 export const ZH_BROWSER_LOCALE = 'zh-CN'
 
+/**
+ * The Desktop composition's account sweep, mirrored from the launcher's
+ * `ACCOUNT_SWEEP_PATCH` (the mirror is pinned byte-identical by
+ * `apps/desktop-host/tests/account-sweep.spec.ts`). The `dshDesktop` marker
+ * exists only under the Desktop profile, so every scenario faking the marker
+ * must also compose this overlay through `extraOverlayPath`: there the
+ * launcher would have applied it over the same bundle rosters.
+ */
+export const DESKTOP_ACCOUNT_SWEEP = fileURLToPath(new URL('./fixtures/desktop-account-sweep.patch.yml', import.meta.url))
+
 /** Same-day anchor for seeded event times and the Asia/Shanghai browser clock. */
 export const WEB_FIXTURE_TIME = Date.parse('2026-01-15T12:00:00+08:00')
 
@@ -265,16 +275,10 @@ export function conversationContextKey(kind: string, id: string): string {
   return `${kind.length}:${kind}${id}`
 }
 
-/** Open Settings through the Web gear or Desktop account menu.
+/** Open Settings through the gear button the Web and Desktop renderers share.
  * @param page - browser page with the mounted sidebar.
  * @param locale - current UI language.
  */
 export async function openSettings(page: Page, locale: 'en' | 'zh'): Promise<void> {
-  const label = locale === 'zh' ? '设置' : 'Settings'
-  if (await page.evaluate(() => 'dshDesktop' in globalThis)) {
-    await page.getByRole('button', { name: locale === 'zh' ? '账号菜单' : 'Account menu', exact: true }).click()
-    await page.getByRole('menuitem', { name: label, exact: true }).click()
-  } else {
-    await page.getByRole('button', { name: label, exact: true }).click()
-  }
+  await page.getByRole('button', { name: locale === 'zh' ? '设置' : 'Settings', exact: true }).click()
 }

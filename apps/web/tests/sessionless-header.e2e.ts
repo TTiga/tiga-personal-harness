@@ -2,14 +2,14 @@
 import { chromium, type Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, saveFailureShot } from './support.ts'
+import { DESKTOP_ACCOUNT_SWEEP, newEnglishPage, saveFailureShot } from './support.ts'
 import { initialShortcutConfig } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 
 let scaffold: WebScaffold
 let browser: Browser
 
 beforeAll(async () => {
-  scaffold = await launchWebScaffold()
+  scaffold = await launchWebScaffold({ extraOverlayPath: DESKTOP_ACCOUNT_SWEEP })
   browser = await chromium.launch()
 })
 

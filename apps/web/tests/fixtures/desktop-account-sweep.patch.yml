@@ -1,0 +1,14 @@
+# dsh desktop: account login surfaces are retired from the Desktop profile.
+# Launcher-owned like cordis.yml: rewritten on every boot and applied after the
+# bundle and user layers, so these rows never mount here.
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
+- id: ui-settings-account
+  disabled: true
+
+- id: account-controller
+  disabled: true
