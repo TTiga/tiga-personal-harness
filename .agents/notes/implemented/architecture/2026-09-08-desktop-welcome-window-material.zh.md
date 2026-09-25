@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-[Electron 欢迎窗口](../../../../apps/desktop/src/welcome-window.ts)负责原生材质和窗口控件。独立打包的 React 渲染器提供入口、账号登录状态和 API Key 表单。它与 Web UI 共用 `StateDot` 加载组件，不启动 Web 插件图。Desktop 构建将本地 JavaScript 和 CSS 输出到 `lib/welcome`，并纳入应用安装包；文档继续使用禁止网络访问的内容安全策略。窄接口 preload 提供强类型桌面文案、仅写密钥操作和跳过操作；IPC 拒绝其他窗口和子 frame。每个沙箱 preload 都独立打包，因为 Electron 受限的 require 无法加载同目录中的拆分模块。Electron 主进程通过共享 Web 启动 URL 认证，并通过现有设置和凭证 RPC 方法解析官方提供方的引用。[Web 薄壳](2026-09-10-desktop-web-wrapper.zh.md)负责 HTTP 服务；引导不增加 Host 端点或子进程 IPC 操作。响应只包含元数据或安全结果，不包含密钥或提供方的私有诊断。
+Electron 欢迎窗口（原 `apps/desktop/src/welcome-window.ts`）负责原生材质和窗口控件。独立打包的 React 渲染器提供入口、账号登录状态和 API Key 表单。它与 Web UI 共用 `StateDot` 加载组件，不启动 Web 插件图。Desktop 构建将本地 JavaScript 和 CSS 输出到 `lib/welcome`，并纳入应用安装包；文档继续使用禁止网络访问的内容安全策略。窄接口 preload 提供强类型桌面文案、仅写密钥操作和跳过操作；IPC 拒绝其他窗口和子 frame。每个沙箱 preload 都独立打包，因为 Electron 受限的 require 无法加载同目录中的拆分模块。Electron 主进程通过共享 Web 启动 URL 认证，并通过现有设置和凭证 RPC 方法解析官方提供方的引用。[Web 薄壳](2026-09-10-desktop-web-wrapper.zh.md)负责 HTTP 服务；引导不增加 Host 端点或子进程 IPC 操作。响应只包含元数据或安全结果，不包含密钥或提供方的私有诊断。
 
 冷启动在账号凭证与模型 API Key 均未配置时打开入口。保存会在持久化成功后进入工作区；跳过会直接进入，不保存草稿或凭证入口完成标记。下次进程启动时会重新检查凭证。Desktop preload 标记抑制自动 Web 凭证步骤和欢迎须知；设置与显式 API Key 编辑仍然可用。[Desktop 引导决策](../feature/2026-09-16-desktop-onboarding.zh.md)负责账号登录后独立的设备本地介绍流程。其他原生壳可以通过 Models Host 插件注入页面的 `credentialOnboarding` 值仅禁用凭证步骤。模块图传递的是包标识，而不是任意 Host 配置，因此单独配置 Host 行不会配置其 Client 半部。[账号提供方](2026-09-14-deepseek-account-login.zh.md)提供登录与退出登录状态，同时保留独立存储的 API Key。
 
@@ -35,3 +35,7 @@ Desktop 在打开欢迎窗口前读取共享的 `locale.preference`。Client 在
 ## 后果
 
 原生模糊强度和字体回退因系统而异。主窗口沿用共享的 sidebar vibrancy；全窗引导保持渲染器透明，不额外叠加底色。Windows 合成效果需要平台验证。所属目录内的文本预期覆盖两页和两种语言，构建后 Host 的验收覆盖凭证跨重启持久化。账号退出登录保留独立的 API Key。引导展示不会生成 Session 事件。
+
+## 后续移除
+
+Tiga 桌面改造随后移除了欢迎窗口、其渲染器以及为其服务的账号后端；Desktop 启动现在直接进入主窗口，工作区内的 DeepSeek 引导对话框是唯一的首次配置路径。本笔记依赖的读取——共享的 `locale.preference` 与基于 Web 设置和凭证 RPC 的 API Key 存在性——保留在 `apps/desktop/src/workspace-bootstrap.ts`。若重新引入工作区前的凭证界面，需要从零重建启动归属和窗口；本笔记为那种情况保留材质与归属决策的理由。

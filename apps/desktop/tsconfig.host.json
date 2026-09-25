@@ -18,9 +18,6 @@
       "path": "../../packages/credentials/deepseek-account"
     },
     {
-      "path": "../../packages/api/gateway/tsconfig.host.json"
-    },
-    {
       "path": "../../packages/client/ui-sidebar-browser/tsconfig.host.json"
     },
     {
@@ -29,8 +26,5 @@
     {
       "path": "../../packages/util/atomic-write"
     }
-  ],
-  "exclude": [
-    "src/client"
   ]
 }
