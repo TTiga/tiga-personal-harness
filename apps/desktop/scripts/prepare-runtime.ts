@@ -10,6 +10,7 @@ import { downloadArtifact } from '@electron/get'
 import extractZip from 'extract-zip'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { preparePrimaryRuntime } from './prepare-primary-runtime.ts'
+import { writeRuntimePackageManagerShims } from './runtime-shims.ts'
 
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const RUNTIME_ROOT = BUILD_PATHS.runtime
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
   const pnpmVersion = preparePnpm()
   cpSync(join(import.meta.dirname, 'node-bin'), join(RUNTIME_ROOT, 'bin'), { recursive: true })
   chmodSync(join(RUNTIME_ROOT, 'bin', 'node'), 0o755)
+  writeRuntimePackageManagerShims(join(RUNTIME_ROOT, 'bin'))
   writeFileSync(join(RUNTIME_ROOT, 'versions.json'), `${JSON.stringify({
     schemaVersion: 1,
     node: nodeVersion,
