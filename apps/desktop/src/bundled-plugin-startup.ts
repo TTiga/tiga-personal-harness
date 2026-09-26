@@ -16,6 +16,7 @@ import { BundledPluginInstaller, parseBundledPluginManifest, resolveBundledPlugi
 import { BundledPluginStartupCooldown } from './bundled-plugin-cooldown.ts'
 import { BundledPresetVersionGate } from './bundled-preset-version-gate.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
+import { DESKTOP_PROFILE_BUNDLES } from './project-manager.ts'
 import { DEFAULT_PROFILE_BUNDLES, initProfile, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
 
 /** Upper bound for one seeded preset installation, shared with the upstream mechanism. */
@@ -177,13 +178,14 @@ export async function runDesktopHarnessCommand(
 
 /**
  * Bundles for a profile the bundled preset may initialize itself: the reserved
- * Desktop profile carries the web template's bundles (project-manager's
- * createPluginProfile defines it that way), while the generic fallback would
- * omit the web app and leave a profile the Host cannot boot as the application.
+ * Desktop profile carries the web template's bundles (DESKTOP_PROFILE_BUNDLES,
+ * the same source createPluginProfile initializes it from), while the generic
+ * fallback would omit the web app and leave a profile the Host cannot boot as
+ * the application.
  */
 function presetProfileBundles(profile: string): readonly string[] {
   return PROFILE_TEMPLATES[profile]?.bundles
-    ?? (profile === 'desktop' ? PROFILE_TEMPLATES.web?.bundles : undefined)
+    ?? (profile === 'desktop' ? DESKTOP_PROFILE_BUNDLES : undefined)
     ?? DEFAULT_PROFILE_BUNDLES
 }
 
@@ -275,10 +277,11 @@ function cliInvocation(
  * namespace is the first-start signal.
  */
 async function firstStartPending(dshHome: string, entries: readonly BundledPluginManifestEntry[]): Promise<boolean> {
+  if (entries.length === 0) return false
   for (const entry of entries) {
     if (await hasBundledPluginSeedMarker(dshHome, entry)) return false
   }
-  return entries.length > 0
+  return true
 }
 
 /**

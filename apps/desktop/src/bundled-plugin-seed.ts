@@ -313,6 +313,9 @@ async function markerExists(path: string): Promise<boolean> {
  * Durable seed markers are namespaced per target profile: a preset that changes
  * its target profile must not inherit the previous profile's install or
  * tombstone records.
+ * @param dshHome Root directory holding the bundled-plugins state tree.
+ * @param entry Manifest entry whose seed marker to resolve.
+ * @returns Marker path under bundled-plugins/profiles/<profile>/ for the entry's target profile.
  */
 export function bundledPluginMarkerPath(dshHome: string, entry: BundledPluginManifestEntry): string {
   return join(dshHome, 'bundled-plugins', 'profiles', entry.profile, `${entry.seedId}.seeded.json`)

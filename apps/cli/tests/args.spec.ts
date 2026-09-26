@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parseDshArgs } from '../src/args.ts'
+import { DESKTOP_PROFILE_MANAGEMENT_ENV, parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
 
@@ -215,9 +215,12 @@ describe('parseDshArgs', () => {
   })
 
   it("lets the Electron application's own wiring manage the reserved desktop profile", () => {
-    vi.stubEnv('DSH_DESKTOP_PROFILE_MANAGEMENT', '1')
+    vi.stubEnv(DESKTOP_PROFILE_MANAGEMENT_ENV, '1')
     expect(parse(['plugin', '--profile', 'desktop', 'add', 'x']))
       .toEqual({ mode: 'plugin', profile: 'desktop', args: ['add', 'x'] })
+    // Boot-side requests share the guard, so the exemption covers them too.
+    expect(parse(['--profile', 'desktop', '--dump-config']))
+      .toMatchObject({ mode: 'dump-config', profile: 'desktop' })
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

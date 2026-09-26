@@ -39,6 +39,12 @@ interface FixtureEntry extends Record<string, unknown> {
 // so the bundled preset targets it; 'web' is only meaningful to `dsh web`.
 const PRESET_PROFILE = 'desktop'
 
+/** One entry from a completed prior seed; gate-path tests settle it first. */
+const priorSettledEntry = {
+  seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
+  installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
+}
+
 async function fixture(plugins: readonly FixtureEntry[] = [
   {
     seedId: 'dsh-mermaid', packageName: 'dsh-mermaid', version: '0.4.1', profile: PRESET_PROFILE,
@@ -233,10 +239,7 @@ describe('desktop bundled plugin startup', () => {
   })
 
   it('attempts a per-entry pass once per application version', async () => {
-    const settled = {
-      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
-      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
-    }
+    const settled = priorSettledEntry
     const f = await fixture([
       settled,
       {
@@ -259,10 +262,7 @@ describe('desktop bundled plugin startup', () => {
   })
 
   it('skips the pass when the version marker is damaged', async () => {
-    const settled = {
-      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
-      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
-    }
+    const settled = priorSettledEntry
     const f = await fixture([settled])
     // One marker keeps this off the first-start path so the damaged gate is reached.
     await settleEntry(f, settled)
@@ -298,10 +298,7 @@ describe('desktop bundled plugin startup', () => {
   })
 
   it('records a failure for cooldown and continues with the remaining entries', async () => {
-    const settled = {
-      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
-      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
-    }
+    const settled = priorSettledEntry
     const f = await fixture([
       settled,
       {
