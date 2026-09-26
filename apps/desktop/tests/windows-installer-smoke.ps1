@@ -13,6 +13,12 @@ $uninstaller = Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
 $results = [Collections.Generic.List[string]]::new()
 $expected = Get-Content (Join-Path $PSScriptRoot 'expected/windows-installer.json') -Raw | ConvertFrom-Json
+# The data page publishes a real user variable; snapshot the machine value and restore it afterwards.
+$environmentKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+$originalDataHome = $environmentKey.GetValue('DSH_HOME', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+$dataHome = Join-Path $OutputDirectory 'Harness Data'
+$dataPrefill = Join-Path $OutputDirectory 'Prefilled Data'
+[Environment]::SetEnvironmentVariable('DSH_HOME', $dataPrefill, 'User')
 $localizedCopy = @{ ENGLISH = @{}; SIMPCHINESE = @{} }
 Get-Content (Join-Path $PSScriptRoot '../installer/strings.nsh') -Encoding UTF8 | ForEach-Object {
     if ($_ -match '^LangString (INSTALLER_\w+) \$\{LANG_(ENGLISH|SIMPCHINESE)\} "(.*)"$') {
@@ -69,6 +75,12 @@ function Dismiss([Diagnostics.Process]$Process, [string]$Text) {
         if ($timer.Elapsed.TotalSeconds -gt 10) { throw 'Dialog did not close' }
         Start-Sleep -Milliseconds 25
     }
+}
+function Complete-DataPage([Diagnostics.Process]$Process, [string]$CurrentText, [string]$DataHome) {
+    [void](Wait-Control $Process $copy.INSTALLER_DATA_LABEL)
+    $edit = Wait-Control $Process $CurrentText
+    [void][InstallerCapture]::SendMessage($edit, 0xC, [IntPtr]::Zero, $DataHome)
+    Click-Control $Process $copy.INSTALLER_INSTALL
 }
 function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -151,8 +163,22 @@ try {
     [InstallerCapture]::MoveBy($window, 73, -41)
     $bounds = [InstallerCapture]::Bounds($window)
     Click-Control $process $copy.INSTALLER_INSTALL
+    # The data page prefills the published value, rejects an invalid choice and keeps the page.
+    [void](Wait-Control $process $copy.INSTALLER_DATA_LABEL)
+    $dataEdit = Wait-Control $process $dataPrefill
+    [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'light-data.png'))
+    [void][InstallerCapture]::SendMessage($dataEdit, 0xC, [IntPtr]::Zero, [IO.Path]::GetPathRoot($installPath))
+    [void][InstallerCapture]::PostMessage($dataEdit, 0x100, [IntPtr]13, [IntPtr]::Zero)
+    Dismiss $process $copy.INSTALLER_PATH_INVALID
+    [void](Wait-Control $process $copy.INSTALLER_DATA_LABEL)
+    [void][InstallerCapture]::SendMessage($dataEdit, 0xC, [IntPtr]::Zero, $dataHome)
+    Click-Control $process $copy.INSTALLER_INSTALL
     Finish-Setup $process $false light $bounds
     if (-not (Test-Path -LiteralPath $appPath) -or (Test-Path -LiteralPath (Join-Path $installPath 'launched.txt'))) { throw 'Unchecked launch behavior failed' }
+    if ($environmentKey.GetValue('DSH_HOME') -ne $dataHome) { throw 'Data directory was not published to the user environment' }
+    if (-not (Test-Path -LiteralPath $dataHome -PathType Container)) { throw 'Installer did not create the chosen data directory' }
+    $results.Add('data-directory-prefills-and-rejects-invalid-paths')
+    $results.Add('data-directory-published-to-user-environment')
     $results.Add('enter-validates-current-path-and-unchecked-launch')
     $results.Add('completion-preserves-window-position')
     $results.Add('welcome-ready-before-first-show')
@@ -165,6 +191,7 @@ try {
     [void][InstallerCapture]::Save([InstallerCapture]::Find($process.Id), (Join-Path $OutputDirectory 'dark-welcome.png'))
     $bounds = [InstallerCapture]::Bounds([InstallerCapture]::Find($process.Id))
     Click-Control $process $copy.INSTALLER_INSTALL
+    Complete-DataPage $process $dataHome $dataHome
     Finish-Setup $process $true dark $bounds
     $registration = Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)
     if ($registration.InstallLocation.TrimEnd('\') -ne $installPath -or -not (Test-Path -LiteralPath $appPath)) {
@@ -179,6 +206,17 @@ try {
     } while ($timer.Elapsed.TotalSeconds -lt 15)
     if (-not $app -or $app.Path -ne $appPath) { throw 'Finish did not launch the installed test application' }
     $processes.Add($app)
+    # The launched payload expands %DSH_HOME% from its inherited environment, proving the rebased block reached it.
+    $launched = Join-Path $installPath 'launched.txt'
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        if (Test-Path -LiteralPath $launched) { break }
+        if ($app.HasExited) { throw 'Launched application exited before reporting its environment' }
+        Start-Sleep -Milliseconds 25
+    } while ($timer.Elapsed.TotalSeconds -lt 5)
+    if (-not (Test-Path -LiteralPath $launched)) { throw 'Launched application did not report its environment' }
+    if ((Get-Content -LiteralPath $launched -Raw) -notlike "*dsh_home=$dataHome*") { throw 'Launched process did not inherit the published data home' }
+    $results.Add('launch-inherits-published-data-home')
     $results.Add('registered-directory-and-checked-launch')
     $results.Add('launch-failure-retry-and-prompt-dismissal')
 
@@ -206,6 +244,7 @@ try {
     $processes.Add($app)
     [void](Wait-Control $app 'Installer test application is running.' -Dialog)
     Click-Control $process $copy.INSTALLER_INSTALL
+    Complete-DataPage $process $dataHome $dataHome
     Assert-RunningRejected $process
     Dismiss $app 'Installer test application is running.'
     if (-not $app.WaitForExit(10000)) { throw 'Test application did not exit' }
@@ -241,6 +280,7 @@ try {
         if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
         $process.Dispose()
     }
+    [Environment]::SetEnvironmentVariable('DSH_HOME', $originalDataHome, 'User')
     if (Test-Path -LiteralPath $uninstaller) {
         $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -WindowStyle Hidden
         if (-not $uninstallProcess.WaitForExit(60000)) { $uninstallProcess.Kill(); $uninstallProcess.WaitForExit(); throw 'Test uninstaller timed out' }

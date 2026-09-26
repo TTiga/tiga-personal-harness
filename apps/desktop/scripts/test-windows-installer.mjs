@@ -79,9 +79,10 @@ Name "${productName}"
 OutFile "${join(payload, `${productName}.exe`)}"
 SilentInstall silent
 Section
-  FileOpen $0 "$EXEDIR\\launched.txt" w
-  FileWrite $0 "launched"
-  FileClose $0
+  ExpandEnvStrings $0 "%DSH_HOME%"
+  FileOpen $1 "$EXEDIR\\launched.txt" w
+  FileWrite $1 "launched dsh_home=$0"
+  FileClose $1
   MessageBox MB_OK "Installer test application is running."
 SectionEnd
 `)

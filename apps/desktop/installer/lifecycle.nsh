@@ -42,6 +42,16 @@ Function InstallerWelcome
     Call InstallerCreate
 FunctionEnd
 
+; Updates keep the published DSH_HOME; a fresh installation chooses it once on this page.
+Function InstallerDataDirectory
+    ${If} ${isUpdated}
+        Abort
+    ${EndIf}
+    StrCpy $InstallerPhase "data"
+    StrCpy $InstallerExpanded 1
+    Call InstallerCreate
+FunctionEnd
+
 Function InstallerBeforeInstall
     SetAutoClose true
     Call InstallerPreflight

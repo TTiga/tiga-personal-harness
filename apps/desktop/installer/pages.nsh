@@ -18,6 +18,7 @@ Var InstallerEditFrame
 Var InstallerBrowse
 Var InstallerLaunch
 Var InstallerExpanded
+Var InstallerDataLabel
 !include "${__FILEDIR__}\path.nsh"
 !include "${__FILEDIR__}\drawing.nsh"
 
@@ -88,7 +89,17 @@ Function InstallerCreate
     SendMessage $InstallerStatus ${WM_SETFONT} $InstallerSmallFont 1
     !insertmacro InstallerControlColors $InstallerStatus
 
-    ${NSD_CreateButton} 0 0 0 0 "$(INSTALLER_CHOOSE_PATH)"
+    ${NSD_CreateLabel} 0 0 0 0 "$(INSTALLER_DATA_LABEL)"
+    Pop $InstallerDataLabel
+    !insertmacro InstallerPlace $InstallerDataLabel 48 396 504 36
+    ${NSD_AddStyle} $InstallerDataLabel ${SS_CENTER}|${SS_CENTERIMAGE}
+    SendMessage $InstallerDataLabel ${WM_SETFONT} $InstallerSmallFont 1
+    !insertmacro InstallerControlColors $InstallerDataLabel
+    StrCpy $6 "$(INSTALLER_CHOOSE_PATH)"
+    ${If} $InstallerPhase == "data"
+        StrCpy $6 "$(INSTALLER_CHOOSE_DATA)"
+    ${EndIf}
+    ${NSD_CreateButton} 0 0 0 0 $6
     Pop $InstallerChoose
     !insertmacro InstallerPlace $InstallerChoose 232 438 136 28
     ${NSD_OnClick} $InstallerChoose InstallerExpandPath
@@ -97,7 +108,11 @@ Function InstallerCreate
     Pop $InstallerEditFrame
     !insertmacro InstallerPlace $InstallerEditFrame 64 434 384 34
     Call InstallerDrawEditFrame
-    ${NSD_CreateText} 0 0 0 0 "$InstallerPath"
+    StrCpy $7 $InstallerPath
+    ${If} $InstallerPhase == "data"
+        StrCpy $7 $InstallerDataHome
+    ${EndIf}
+    ${NSD_CreateText} 0 0 0 0 $7
     Pop $InstallerEdit
     System::Call 'user32::GetWindowLongW(p $InstallerEdit, i -16) i.r0'
     IntOp $0 $0 & 0xFF7FFFFF
@@ -186,11 +201,15 @@ Function InstallerRender
     ShowWindow $InstallerBrowse 0
     ShowWindow $InstallerLaunch 0
     ShowWindow $InstallerStatus 0
+    ShowWindow $InstallerDataLabel 0
     ${If} $InstallerPhase == "success"
         ${NSD_SetText} $InstallerButton "$(INSTALLER_FINISH)"
         ShowWindow $InstallerLaunch 5
     ${Else}
         ${NSD_SetText} $InstallerButton "$(INSTALLER_INSTALL)"
+        ${If} $InstallerPhase == "data"
+            ShowWindow $InstallerDataLabel 5
+        ${EndIf}
         ${If} $InstallerExpanded == 1
             ShowWindow $InstallerEditFrame 5
             ShowWindow $InstallerEdit 5
@@ -210,6 +229,15 @@ FunctionEnd
 Function InstallerWelcomeLeave
     ${NSD_GetText} $InstallerEdit $InstallerPath
     Call InstallerPreflight
+    ${If} $InstallerError != ""
+        MessageBox MB_OK|MB_ICONEXCLAMATION "$InstallerError"
+        Abort
+    ${EndIf}
+FunctionEnd
+
+Function InstallerDataDirectoryLeave
+    ${NSD_GetText} $InstallerEdit $InstallerDataHome
+    Call InstallerValidateDataHome
     ${If} $InstallerError != ""
         MessageBox MB_OK|MB_ICONEXCLAMATION "$InstallerError"
         Abort
@@ -259,11 +287,15 @@ FunctionEnd
 
 Function InstallerValidateEditedPath
     ${NSD_KillTimer} InstallerValidateEditedPath
-    ${If} $InstallerPhase != "welcome"
+    ${If} $InstallerPhase == "data"
+        ${NSD_GetText} $InstallerEdit $InstallerDataHome
+        Call InstallerValidateDataHome
+    ${ElseIf} $InstallerPhase == "welcome"
+        ${NSD_GetText} $InstallerEdit $InstallerPath
+        Call InstallerValidatePath
+    ${Else}
         Return
     ${EndIf}
-    ${NSD_GetText} $InstallerEdit $InstallerPath
-    Call InstallerValidatePath
     ${NSD_SetText} $InstallerStatus "$InstallerError"
     !insertmacro InstallerPlace $InstallerStatus 48 542 504 42
     ShowWindow $InstallerStatus 5
@@ -271,7 +303,13 @@ FunctionEnd
 
 Function InstallerBrowsePath
     Pop $0
-    nsDialogs::SelectFolderDialog "$(INSTALLER_CHOOSE_PATH)" "$InstallerPath"
+    StrCpy $1 "$(INSTALLER_CHOOSE_PATH)"
+    StrCpy $2 $InstallerPath
+    ${If} $InstallerPhase == "data"
+        StrCpy $1 "$(INSTALLER_CHOOSE_DATA)"
+        StrCpy $2 $InstallerDataHome
+    ${EndIf}
+    nsDialogs::SelectFolderDialog $1 $2
     Pop $0
     ${If} $0 != "error"
         ${NSD_SetText} $InstallerEdit "$0"

@@ -1,3 +1,6 @@
+; Included from pages.nsh and data-home.nsh; the guard keeps the function definitions single.
+!ifndef DSH_INSTALLER_PATH_NSH
+!define DSH_INSTALLER_PATH_NSH
 Var InstallerPath
 Var InstallerError
 ; Reject reparse points along the selected path before any write or cleanup.
@@ -111,10 +114,33 @@ Function ${PREFIX}InstallerValidatePath
         Return
     ${EndIf}
     StrCpy $InstallerPath $4
+    ; Trailing separators survive until normalization and can shrink a raw "D:\\" input back to the
+    ; drive root, which the minimum-length check above never sees because the raw input is longer.
+    StrLen $0 $InstallerPath
+    ${If} $0 <= 3
+        Return
+    ${EndIf}
     StrCpy $InstallerError ""
 FunctionEnd
 !macroend
 !insertmacro InstallerValidatePathFunction ""
+
+; Proves creation rights against the closest existing ancestor, which is where the operating
+; system checks write access when the deeper folders do not exist yet. Input in $2, output in
+; $0: zero means the location is not writable.
+Function InstallerProbeWritable
+    ${Do}
+        System::Call 'kernel32::GetFileAttributesW(w r2) i.r0'
+        ${If} $0 != -1
+            ${ExitDo}
+        ${EndIf}
+        ${GetParent} $2 $2
+    ${Loop}
+    System::Call 'kernel32::GetTempFileNameW(w r2, w "HIL", i 0, w .r3) i.r0'
+    ${If} $0 != 0
+        System::Call 'kernel32::DeleteFileW(w r3)'
+    ${EndIf}
+FunctionEnd
 
 ; A new installation requires an empty directory; updates require the registered executable.
 Function InstallerPreflight
@@ -139,19 +165,11 @@ Function InstallerPreflight
         FindClose $0
     ${EndIf}
     StrCpy $2 $INSTDIR
-    ${Do}
-        System::Call 'kernel32::GetFileAttributesW(w r2) i.r0'
-        ${If} $0 != -1
-            ${ExitDo}
-        ${EndIf}
-        ${GetParent} $2 $2
-    ${Loop}
-    System::Call 'kernel32::GetTempFileNameW(w r2, w "HIL", i 0, w .r3) i.r0'
+    Call InstallerProbeWritable
     ${If} $0 == 0
         StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
         Return
     ${EndIf}
-    System::Call 'kernel32::DeleteFileW(w r3)'
     System::Call 'kernel32::GetDiskFreeSpaceExW(w r2, *l .r0, p 0, p 0) i.r1'
     ${If} $1 == 0
         StrCpy $InstallerError "$(INSTALLER_PATH_WRITABLE)"
@@ -166,3 +184,4 @@ Function InstallerPreflight
         StrCpy $InstallerError "$(INSTALLER_DISK_SPACE)"
     ${EndIf}
 FunctionEnd
+!endif
