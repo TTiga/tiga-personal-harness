@@ -11,8 +11,8 @@ const strings = read('../installer/strings.nsh')
 
 function macro(source: string, name: string) {
   const match = source.match(new RegExp(`!macro ${name}\\s`))
-  expect(match, `missing macro ${name}`).not.toBeNull()
-  const start = match.index!
+  if (!match) throw new Error(`missing macro ${name}`)
+  const start = match.index
   return source.slice(start, source.indexOf('!macroend', start))
 }
 
