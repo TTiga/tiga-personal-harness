@@ -250,7 +250,13 @@ describe('desktop bundled plugin startup', () => {
     roots.push(root)
     const home = join(root, 'home')
     await mergeProfileBuildApprovals(home, 'web', ['node-pty'])
-    expect(await readFile(join(home, 'profiles', 'web', 'pnpm-workspace.yaml'), 'utf8'))
-      .toContain('node-pty: true')
+    const settings = await readFile(join(home, 'profiles', 'web', 'pnpm-workspace.yaml'), 'utf8')
+    // A file created before the plugin CLI initializes the profile must carry
+    // the same workspace template, not pnpm-default settings.
+    expect(settings).toContain('node-pty: true')
+    expect(settings).toContain('autoInstallPeers: false')
+    expect(settings).toContain('nodeLinker: hoisted')
+    expect(JSON.parse(await readFile(join(home, 'profiles', 'web', 'package.json'), 'utf8')))
+      .toMatchObject({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } } })
   })
 })

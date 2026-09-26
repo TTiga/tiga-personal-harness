@@ -159,9 +159,14 @@ describe('bundled plugin seed', () => {
       plugins: BundledPluginManifestEntry[]
     }
     expect(manifest.schema).toBe(2)
-    // The Tiga preset starts with one traced archive; the remaining curated
-    // entries land with their own ticket against the same schema.
     expect(manifest.plugins.map(entry => [entry.packageName, entry.version, entry.profile, entry.installPolicy])).toEqual([
+      ['dshmarket', '1.64.0', 'web', 'startup'],
+      ['@xmanrui/dsh-im', '4.28.0', 'web', 'startup'],
+      ['dsh-skill-picker', '0.5.11', 'web', 'startup'],
+      ['dsh-better-sidebar', '0.21.1', 'web', 'startup'],
+      ['dsh-pocket', '2.10.6', 'web', 'startup'],
+      ['@ychris12138/dsh-usage-stats', '0.3.3', 'web', 'startup'],
+      ['dsh-smooth-stream', '0.6.1', 'web', 'startup'],
       ['dsh-mermaid', '0.4.1', 'web', 'startup'],
     ])
     for (const entry of manifest.plugins.filter(candidate => (
@@ -170,7 +175,20 @@ describe('bundled plugin seed', () => {
       expect(entry.registrySpec).toBe(`${entry.packageName}@${entry.version}`)
     }
     expect(new Set(manifest.plugins.map(entry => entry.seedId)).size).toBe(manifest.plugins.length)
+    // The reviewed node-pty build approval is declared on the sidebar entry
+    // and on no other entry.
+    expect(manifest.plugins.find(entry => entry.packageName === 'dsh-better-sidebar')?.approvedBuilds)
+      .toEqual(['node-pty'])
+    expect(Object.fromEntries(manifest.plugins.flatMap(entry => (
+      entry.managedUpgradeFrom === undefined ? [] : [[entry.packageName, entry.managedUpgradeFrom]]
+    )))).toEqual({
+      '@xmanrui/dsh-im': ['3.0.6'],
+      'dsh-better-sidebar': ['0.16.1'],
+      'dsh-pocket': ['1.14.5'],
+      'dsh-skill-picker': ['0.2.0'],
+    })
     expect(manifest.plugins.map(entry => entry.packageName)).not.toContain('dsh-whale-widget')
+    expect(manifest.plugins.every(entry => entry.installPolicy !== 'diagnostic')).toBe(true)
     expect(manifest.plugins.map(entry => entry.packageName)).not.toContain('@deepseek-ai/dsh-subagent-codex')
     expect(manifest.plugins.map(entry => entry.packageName)).not.toContain('@deepseek-ai/dsh-subagent-claude-code')
     for (const entry of manifest.plugins) {

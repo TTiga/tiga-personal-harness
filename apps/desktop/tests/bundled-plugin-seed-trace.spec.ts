@@ -1,4 +1,4 @@
-/** End-to-end trace of one real archive through first start, uninstall, and restart. */
+/** End-to-end trace of the real preset through first start, uninstall, and restart. */
 import { existsSync, symlinkSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -31,6 +31,14 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
+/** Startup entries the shipped manifest pins: seedId, packageName, version. */
+async function presetEntries(): Promise<Array<{ packageName: string; version: string; seedId: string }>> {
+  const manifest = JSON.parse(await readFile(
+    join(repositoryRoot, 'apps', 'desktop', 'bundled-plugins', 'manifest.json'), 'utf8',
+  )) as { plugins: Array<{ seedId: string; packageName: string; version: string; installPolicy: string }> }
+  return manifest.plugins.filter(entry => entry.installPolicy === 'startup')
+}
+
 /** One seeded home with the real CLI reachable through a runtime-tree layout. */
 async function traceHome(): Promise<{ dshHome: string }> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-seed-trace-'))
@@ -60,22 +68,32 @@ function startupOptions(dshHome: string, appVersion = '0.1.7-trace.1') {
 }
 
 describe('bundled plugin first-start trace', () => {
-  trace('installs the real archive on first start, then never resurrects an uninstall', async () => {
+  trace('installs the complete real preset on first start, then never resurrects an uninstall', async () => {
     const { dshHome } = await traceHome()
+    const entries = await presetEntries()
+    expect(entries).toHaveLength(8)
 
-    // First start: the fresh home installs the real dsh-mermaid archive
-    // offline through the plugin CLI.
+    // First start: the fresh home installs every real preset archive offline
+    // through the plugin CLI in one batch invocation.
     const first = await startDesktopBundledPlugins(startupOptions(dshHome))
     expect(first).toMatchObject({ firstStart: true, attempted: true })
     expect(first.failure).toBeUndefined()
-    const installed = JSON.parse(await readFile(
-      join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid', 'package.json'), 'utf8',
-    )) as { name?: string; version?: string }
-    expect(installed).toMatchObject({ name: 'dsh-mermaid', version: '0.4.1' })
-    expect(JSON.parse(await readFile(join(dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json'), 'utf8')))
-      .toMatchObject({ schema: 4, state: 'installed', installedVersion: '0.4.1' })
+    for (const entry of entries) {
+      const installed = JSON.parse(await readFile(
+        join(dshHome, 'profiles', 'web', 'node_modules', ...entry.packageName.split('/'), 'package.json'), 'utf8',
+      )) as { name?: string; version?: string }
+      expect(installed, entry.packageName).toMatchObject({ name: entry.packageName, version: entry.version })
+      expect(JSON.parse(await readFile(join(dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`), 'utf8')))
+        .toMatchObject({ schema: 4, state: 'installed', installedVersion: entry.version })
+    }
 
-    // The user uninstalls it through the same CLI surface the market uses.
+    // Reviewed native build: the sidebar entry pre-approves node-pty. The
+    // profile tree itself never contains node-pty — the harness core carries
+    // it — so the observable approval is the merged workspace setting.
+    const workspaceSettings = await readFile(join(dshHome, 'profiles', 'web', 'pnpm-workspace.yaml'), 'utf8')
+    expect(workspaceSettings).toMatch(/(^|\n)\s*node-pty: true/u)
+
+    // The user uninstalls one plugin through the same CLI surface the market uses.
     const environment = { ...process.env, DSH_HOME: dshHome }
     await runDesktopHarnessCommand({
       command: process.execPath,
@@ -86,10 +104,17 @@ describe('bundled plugin first-start trace', () => {
     })
     expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
 
-    // Second start: the pass observes the uninstall and records the tombstone.
+    // Second start: the pass observes the uninstall and records the tombstone
+    // while every retained preset entry stays verified. The sidebar's
+    // 'verified' also exercises the settled check's approvedBuilds branch,
+    // which reads the node-pty approval merged above.
     const second = await startDesktopBundledPlugins(startupOptions(dshHome))
     expect(second.attempted).toBe(true)
     expect(second.results?.find(item => item.entry.seedId === 'dsh-mermaid')?.result).toBe('removed')
+    for (const entry of entries.filter(candidate => candidate.seedId !== 'dsh-mermaid')) {
+      expect(second.results?.find(item => item.entry.seedId === entry.seedId)?.result, entry.packageName)
+        .toBe('verified')
+    }
     expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
     expect(JSON.parse(await readFile(join(dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json'), 'utf8')))
       .toMatchObject({ state: 'removed' })
@@ -100,5 +125,5 @@ describe('bundled plugin first-start trace', () => {
     expect(third.attempted).toBe(true)
     expect(third.results?.find(item => item.entry.seedId === 'dsh-mermaid')?.result).toBe('verified')
     expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
-  }, 15 * 60_000)
+  }, 30 * 60_000)
 })
