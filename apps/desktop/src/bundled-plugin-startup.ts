@@ -6,7 +6,12 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
 import { isMap, parseDocument } from 'yaml'
-import { appendBundledPluginFailure, seedBundledPluginsBatch, type BundledPluginManifestEntry } from './bundled-plugin-seed.ts'
+import {
+  appendBundledPluginFailure,
+  hasBundledPluginSeedMarker,
+  seedBundledPluginsBatch,
+  type BundledPluginManifestEntry,
+} from './bundled-plugin-seed.ts'
 import { BundledPluginInstaller, parseBundledPluginManifest, resolveBundledPluginResourcesDirectory } from './bundled-plugin-installer.ts'
 import { BundledPluginStartupCooldown } from './bundled-plugin-cooldown.ts'
 import { BundledPresetVersionGate } from './bundled-preset-version-gate.ts'
@@ -170,6 +175,18 @@ export async function runDesktopHarnessCommand(
   })
 }
 
+/**
+ * Bundles for a profile the bundled preset may initialize itself: the reserved
+ * Desktop profile carries the web template's bundles (project-manager's
+ * createPluginProfile defines it that way), while the generic fallback would
+ * omit the web app and leave a profile the Host cannot boot as the application.
+ */
+function presetProfileBundles(profile: string): readonly string[] {
+  return PROFILE_TEMPLATES[profile]?.bundles
+    ?? (profile === 'desktop' ? PROFILE_TEMPLATES.web?.bundles : undefined)
+    ?? DEFAULT_PROFILE_BUNDLES
+}
+
 /** Merge reviewed lifecycle-script approvals into a profile's workspace settings. */
 export async function mergeProfileBuildApprovals(
   dshHome: string,
@@ -183,7 +200,7 @@ export async function mergeProfileBuildApprovals(
   // own guarded init) so the approval cannot leave the profile with pnpm's
   // default (auto-installed peer) behavior. initProfile only creates missing
   // files, and the startup pass owns this profile until the CLI runs.
-  initProfile(profileDirectory, PROFILE_TEMPLATES[profile]?.bundles ?? DEFAULT_PROFILE_BUNDLES)
+  initProfile(profileDirectory, presetProfileBundles(profile))
   const path = join(profileDirectory, 'pnpm-workspace.yaml')
   let text: string
   try { text = await readFile(path, 'utf8') }
@@ -221,7 +238,15 @@ async function writeAtomically(path: string, text: string): Promise<void> {
 
 function harnessEnvironment(options: DesktopBundledPluginStartupOptions): NodeJS.ProcessEnv {
   const environment = desktopNodeEnvironment(options.nodeExecutable, options.nodeBin, { ...process.env })
-  return { ...environment, DSH_HOME: options.dshHome, PATH: `${options.nodeBin}${delimiter}${environment.PATH ?? ''}` }
+  return {
+    ...environment,
+    DSH_HOME: options.dshHome,
+    // The launcher reserves the desktop profile for this application; the
+    // seeding pass is that owner managing the profile through the same CLI
+    // humans use (see rejectElectronProfile in apps/cli/src/args.ts).
+    DSH_DESKTOP_PROFILE_MANAGEMENT: '1',
+    PATH: `${options.nodeBin}${delimiter}${environment.PATH ?? ''}`,
+  }
 }
 
 function cliInvocation(
@@ -243,14 +268,17 @@ function cliInvocation(
   }
 }
 
-/** Whether every startup entry's target profile has never been initialized. */
-function firstStartPending(dshHome: string, entries: readonly BundledPluginManifestEntry[]): boolean {
-  const profiles = new Set(entries.map(entry => entry.profile))
-  if (profiles.size === 0) return false
-  for (const profile of profiles) {
-    if (existsSync(join(dshHome, 'profiles', profile, 'package.json'))) return false
+/**
+ * Whether no startup entry has a seed marker in its target profile yet. The
+ * application pre-creates the reserved Desktop profile before the Host boots,
+ * so profile files cannot signal a fresh preset; the profile-scoped marker
+ * namespace is the first-start signal.
+ */
+async function firstStartPending(dshHome: string, entries: readonly BundledPluginManifestEntry[]): Promise<boolean> {
+  for (const entry of entries) {
+    if (await hasBundledPluginSeedMarker(dshHome, entry)) return false
   }
-  return true
+  return entries.length > 0
 }
 
 /**
@@ -291,7 +319,7 @@ export async function startDesktopBundledPlugins(
     await invoke(['plugin', '--profile', entry.profile, 'add', '--save-exact', archivePath])
   }
 
-  if (firstStartPending(options.dshHome, entries)) {
+  if (await firstStartPending(options.dshHome, entries)) {
     try {
       // One package-manager invocation installs the complete first-start preset
       // set; markers land only after every installed version matches.

@@ -309,6 +309,15 @@ async function markerExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Durable seed markers are namespaced per target profile: a preset that changes
+ * its target profile must not inherit the previous profile's install or
+ * tombstone records.
+ */
+export function bundledPluginMarkerPath(dshHome: string, entry: BundledPluginManifestEntry): string {
+  return join(dshHome, 'bundled-plugins', 'profiles', entry.profile, `${entry.seedId}.seeded.json`)
+}
+
 interface BundledPluginSeedMarker {
   readonly schema: number
   readonly version?: string
@@ -395,7 +404,7 @@ export async function hasBundledPluginSeedMarker(
   entry: BundledPluginManifestEntry,
 ): Promise<boolean> {
   assertBundledPluginManifestEntry(entry)
-  return markerExists(join(dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`))
+  return markerExists(bundledPluginMarkerPath(dshHome, entry))
 }
 
 /**
@@ -410,7 +419,7 @@ export async function hasLegacyBundledPluginSeedMarker(
   entry: BundledPluginManifestEntry,
 ): Promise<boolean> {
   assertBundledPluginManifestEntry(entry)
-  const marker = await readSeedMarker(join(dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`))
+  const marker = await readSeedMarker(bundledPluginMarkerPath(dshHome, entry))
   return marker !== undefined && marker.schema < 2
 }
 
@@ -422,7 +431,7 @@ export async function bundledPluginSeedIsSettled(
   sourceDshHome = dshHome,
 ): Promise<boolean> {
   assertBundledPluginManifestEntry(entry)
-  const marker = await readSeedMarker(join(dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`))
+  const marker = await readSeedMarker(bundledPluginMarkerPath(dshHome, entry))
   if (marker === undefined) return false
   if (repairLegacyMarker && marker.schema < 2) return false
   if (marker.schema < 4) return false
@@ -547,7 +556,7 @@ export async function seedBundledPluginsBatch(
   }
   for (const entry of entries) {
     const dependency = await bundledDependencyState(join(home, 'profiles', entry.profile, 'package.json'), [state], entry)
-    await writeMarker(join(state, `${entry.seedId}.seeded.json`), entry, dependency, 'installed', 'desktop-archive')
+    await writeMarker(bundledPluginMarkerPath(home, entry), entry, dependency, 'installed', 'desktop-archive')
   }
 }
 
@@ -578,7 +587,7 @@ export async function seedBundledPlugin(options: SeedBundledPluginOptions): Prom
   } = options
   assertBundledPluginManifestEntry(entry)
   const stateDirectory = join(dshHome, 'bundled-plugins')
-  const markerPath = join(stateDirectory, `${entry.seedId}.seeded.json`)
+  const markerPath = bundledPluginMarkerPath(dshHome, entry)
   const dependencyPath = join(dshHome, 'profiles', entry.profile, 'package.json')
   let dependency = await bundledDependencyState(
     dependencyPath,

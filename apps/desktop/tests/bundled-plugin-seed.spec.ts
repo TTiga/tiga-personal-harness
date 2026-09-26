@@ -116,7 +116,7 @@ describe('bundled plugin seed', () => {
     await seedBundledPluginsBatch(entries, f.resourcesDirectory, f.dshHome, async () => {}, install)
     expect(install).toHaveBeenCalledTimes(1)
     for (const entry of entries) {
-      expect(JSON.parse(await readFile(join(f.dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`), 'utf8')))
+      expect(JSON.parse(await readFile(join(f.dshHome, 'bundled-plugins', 'profiles', 'web', `${entry.seedId}.seeded.json`), 'utf8')))
         .toMatchObject({ schema: 4, installedVersion: entry.version, ownership: 'desktop-archive' })
     }
   })
@@ -126,7 +126,7 @@ describe('bundled plugin seed', () => {
     await expect(seedBundledPluginsBatch([f.entry], f.resourcesDirectory, f.dshHome, async () => {}, install))
       .rejects.toThrow('did not materialize')
     expect(install).toHaveBeenCalledTimes(1)
-    await expect(readFile(join(f.dshHome, 'bundled-plugins/dshmarket.seeded.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(f.dshHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
   it('creates the log directory before persisting an early install failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-bundled-plugin-log-'))
@@ -159,15 +159,17 @@ describe('bundled plugin seed', () => {
       plugins: BundledPluginManifestEntry[]
     }
     expect(manifest.schema).toBe(2)
+    // Every preset entry targets the reserved Desktop profile the packaged Host
+    // boots; 'web' here would seed a profile the application never runs.
     expect(manifest.plugins.map(entry => [entry.packageName, entry.version, entry.profile, entry.installPolicy])).toEqual([
-      ['dshmarket', '1.64.0', 'web', 'startup'],
-      ['@xmanrui/dsh-im', '4.28.0', 'web', 'startup'],
-      ['dsh-skill-picker', '0.5.11', 'web', 'startup'],
-      ['dsh-better-sidebar', '0.21.1', 'web', 'startup'],
-      ['dsh-pocket', '2.10.6', 'web', 'startup'],
-      ['@ychris12138/dsh-usage-stats', '0.3.3', 'web', 'startup'],
-      ['dsh-smooth-stream', '0.6.1', 'web', 'startup'],
-      ['dsh-mermaid', '0.4.1', 'web', 'startup'],
+      ['dshmarket', '1.64.0', 'desktop', 'startup'],
+      ['@xmanrui/dsh-im', '4.28.0', 'desktop', 'startup'],
+      ['dsh-skill-picker', '0.5.11', 'desktop', 'startup'],
+      ['dsh-better-sidebar', '0.21.1', 'desktop', 'startup'],
+      ['dsh-pocket', '2.10.6', 'desktop', 'startup'],
+      ['@ychris12138/dsh-usage-stats', '0.3.3', 'desktop', 'startup'],
+      ['dsh-smooth-stream', '0.6.1', 'desktop', 'startup'],
+      ['dsh-mermaid', '0.4.1', 'desktop', 'startup'],
     ])
     for (const entry of manifest.plugins.filter(candidate => (
       candidate.installPolicy !== 'diagnostic' && !candidate.registrySpec?.startsWith('github:')
@@ -220,6 +222,7 @@ describe('bundled plugin seed', () => {
     if (previousVersion === undefined) throw new Error(`missing historical version for ${entry.packageName}`)
     await mkdir(join(profile, 'node_modules', ...entry.packageName.split('/')), { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify({
       ...profileManifest({ [entry.packageName]: previousVersion }),
     }))
@@ -227,7 +230,7 @@ describe('bundled plugin seed', () => {
       join(profile, 'node_modules', ...entry.packageName.split('/'), 'package.json'),
       JSON.stringify({ name: entry.packageName, version: previousVersion }),
     )
-    await writeFile(join(state, `${entry.seedId}.seeded.json`), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', `${entry.seedId}.seeded.json`), JSON.stringify({
       schema: 3,
       packageName: entry.packageName,
       version: entry.version,
@@ -250,7 +253,7 @@ describe('bundled plugin seed', () => {
       prepare,
     })).resolves.toBe('upgraded')
     expect(install).toHaveBeenCalledOnce()
-    expect(JSON.parse(await readFile(join(state, `${entry.seedId}.seeded.json`), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', `${entry.seedId}.seeded.json`), 'utf8')))
       .toMatchObject({
         schema: 4,
         handledBundledVersion: entry.version,
@@ -284,7 +287,7 @@ describe('bundled plugin seed', () => {
     expect(install).toHaveBeenCalledOnce()
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('verified')
     expect(install).toHaveBeenCalledOnce()
-    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins', 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins', 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({
         schema: 4,
         packageName: 'dshmarket',
@@ -307,7 +310,7 @@ describe('bundled plugin seed', () => {
     await expect(seedBundledPlugin({ ...options, install, prepare })).resolves.toBe('preserved-user-version')
     expect(install).not.toHaveBeenCalled()
     expect(prepare).toHaveBeenCalledOnce()
-    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins', 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins', 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '9.9.9', ownership: 'user' })
   })
 
@@ -342,10 +345,11 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
     await mkdir(join(profile, 'node_modules/dshmarket'), { recursive: true })
     await writeFile(join(profile, 'node_modules/dshmarket/package.json'), JSON.stringify({ name: 'dshmarket', version: '1.0.0' }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({ schema: 2 }))
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({ schema: 2 }))
     const prepare = vi.fn(async () => {})
     await expect(seedBundledPlugin({ ...options, install: vi.fn(), prepare })).resolves.toBe('preserved-user-version')
     expect(prepare).toHaveBeenCalledWith(options.entry)
@@ -358,10 +362,11 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await mkdir(join(profile, 'node_modules/dshmarket'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: entry.version })))
     await writeFile(join(profile, 'node_modules/dshmarket/package.json'), JSON.stringify({ name: 'dshmarket', version: entry.version }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 4,
       handledBundledVersion: entry.version,
       installedVersion: entry.version,
@@ -380,10 +385,11 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({
       dshmarket: `file:${join(state, 'dshmarket-1.0.0.tgz')}`,
     })))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 2, packageName: 'dshmarket', version: '1.0.0',
     }))
     const installed = join(profile, 'node_modules', 'dshmarket')
@@ -393,7 +399,7 @@ describe('bundled plugin seed', () => {
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('upgraded')
     expect(install).toHaveBeenCalledWith(join(state, options.entry.archive), options.entry)
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '1.12.1', ownership: 'desktop-archive' })
     await expect(bundledPluginSeedIsSettled(options.dshHome, options.entry)).resolves.toBe(true)
   })
@@ -405,11 +411,12 @@ describe('bundled plugin seed', () => {
     const installed = join(profile, 'node_modules', 'dshmarket')
     await mkdir(installed, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
     await writeFile(join(installed, 'package.json'), JSON.stringify({
       name: 'dshmarket', version: '1.0.0',
     }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 2, packageName: 'dshmarket', version: '1.0.0',
     }))
     const install = successfulInstall(options)
@@ -417,7 +424,7 @@ describe('bundled plugin seed', () => {
 
     await expect(seedBundledPlugin({ ...options, entry, install })).resolves.toBe('upgraded')
     expect(install).toHaveBeenCalledWith(join(state, options.entry.archive), entry)
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '1.12.1', ownership: 'desktop-archive' })
   })
 
@@ -428,11 +435,12 @@ describe('bundled plugin seed', () => {
     const installed = join(profile, 'node_modules', 'dshmarket')
     await mkdir(installed, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
     await writeFile(join(installed, 'package.json'), JSON.stringify({
       name: 'dshmarket', version: '1.0.0',
     }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 2, packageName: 'dshmarket', version: options.entry.version,
     }))
     const install = successfulInstall(options)
@@ -441,7 +449,7 @@ describe('bundled plugin seed', () => {
     await expect(bundledPluginSeedIsSettled(options.dshHome, options.entry)).resolves.toBe(false)
     await expect(seedBundledPlugin({ ...options, entry, install })).resolves.toBe('upgraded')
     expect(install).toHaveBeenCalledOnce()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '1.12.1', ownership: 'desktop-archive' })
   })
 
@@ -463,7 +471,7 @@ describe('bundled plugin seed', () => {
     })).resolves.toBe('upgraded')
     expect(install).toHaveBeenCalledOnce()
     expect(JSON.parse(await readFile(
-      join(options.dshHome, 'bundled-plugins/dshmarket.seeded.json'),
+      join(options.dshHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'),
       'utf8',
     ))).toMatchObject({
       schema: 4,
@@ -482,13 +490,14 @@ describe('bundled plugin seed', () => {
     await mkdir(activeState, { recursive: true })
     await mkdir(join(profile, 'node_modules/dshmarket'), { recursive: true })
     await mkdir(join(candidateHome, 'bundled-plugins'), { recursive: true })
+    await mkdir(join(candidateHome, 'bundled-plugins', 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({
       dshmarket: `file:${join(activeState, 'dshmarket-1.0.0.tgz')}`,
     })))
     await writeFile(join(profile, 'node_modules/dshmarket/package.json'), JSON.stringify({
       name: 'dshmarket', version: '1.0.0',
     }))
-    await writeFile(join(candidateHome, 'bundled-plugins/dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(candidateHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'), JSON.stringify({
       schema: 3, version: '1.0.0', ownership: 'desktop',
     }))
     const install = vi.fn(async (_archivePath: string, entry: BundledPluginManifestEntry) => {
@@ -501,7 +510,7 @@ describe('bundled plugin seed', () => {
       sourceDshHome: activeHome,
       install,
     })).resolves.toBe('upgraded')
-    expect(JSON.parse(await readFile(join(candidateHome, 'bundled-plugins/dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(candidateHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, ownership: 'desktop-archive', installedVersion: options.entry.version })
   })
 
@@ -514,7 +523,7 @@ describe('bundled plugin seed', () => {
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('unresolved')
     expect(install).not.toHaveBeenCalled()
-    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins/dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(options.dshHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, state: 'unresolved', ownership: 'user' })
     await expect(bundledPluginSeedIsSettled(options.dshHome, options.entry)).resolves.toBe(false)
   })
@@ -525,13 +534,14 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
-    await writeFile(join(state, 'dshmarket.seeded.json'), '{ damaged')
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), '{ damaged')
     const install = vi.fn()
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('unresolved')
     expect(install).not.toHaveBeenCalled()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, state: 'unresolved', ownership: 'user' })
   })
 
@@ -545,7 +555,8 @@ describe('bundled plugin seed', () => {
     }))
     const entry = { ...options.entry, managedUpgradeFrom: ['1.0.0'] }
     await mkdir(join(options.dshHome, 'bundled-plugins'), { recursive: true })
-    await writeFile(join(options.dshHome, 'bundled-plugins/dshmarket.seeded.json'), JSON.stringify({
+    await mkdir(join(options.dshHome, 'bundled-plugins', 'profiles', 'web'), { recursive: true })
+    await writeFile(join(options.dshHome, 'bundled-plugins/profiles/web/dshmarket.seeded.json'), JSON.stringify({
       schema: 3, version: options.entry.version, ownership: 'external',
     }))
 
@@ -560,9 +571,10 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(installed, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
     await writeFile(join(installed, 'package.json'), JSON.stringify({ name: 'dshmarket', version: '1.0.0' }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 3, version: '1.0.0', ownership: 'external',
     }))
     const entry = { ...options.entry, managedUpgradeFrom: ['1.0.0'] }
@@ -587,10 +599,11 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({
       dshmarket: `file:${join(state, 'dshmarket-1.0.0.tgz')}`,
     })))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 2, packageName: 'dshmarket', version: '1.0.0',
     }))
     await writeFile(join(state, 'snapshot-version-hold.json'), JSON.stringify({
@@ -613,17 +626,18 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '9.9.9' })))
     await mkdir(join(profile, 'node_modules/dshmarket'), { recursive: true })
     await writeFile(join(profile, 'node_modules/dshmarket/package.json'), JSON.stringify({ name: 'dshmarket', version: '9.9.9' }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 2, packageName: 'dshmarket', version: '1.0.0',
     }))
     const install = vi.fn(async () => {})
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('preserved-user-version')
     expect(install).not.toHaveBeenCalled()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '9.9.9', ownership: 'user' })
   })
 
@@ -633,10 +647,11 @@ describe('bundled plugin seed', () => {
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(profile, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({
       dshmarket: `file:${join(state, 'dshmarket-2.0.0.tgz')}`,
     })))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 3, packageName: 'dshmarket', version: '2.0.0', ownership: 'desktop',
     }))
     await mkdir(join(profile, 'node_modules/dshmarket'), { recursive: true })
@@ -645,7 +660,7 @@ describe('bundled plugin seed', () => {
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('preserved-user-version')
     expect(install).not.toHaveBeenCalled()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '2.0.0', ownership: 'desktop-archive' })
   })
 
@@ -656,18 +671,19 @@ describe('bundled plugin seed', () => {
     const installed = join(profile, 'node_modules', 'dshmarket')
     await mkdir(installed, { recursive: true })
     await mkdir(state, { recursive: true })
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
     await writeFile(join(profile, 'package.json'), JSON.stringify(profileManifest({ dshmarket: '1.0.0' })))
     await writeFile(join(installed, 'package.json'), JSON.stringify({
       name: 'dshmarket', version: '1.0.0',
     }))
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({
       schema: 3, packageName: 'dshmarket', version: '1.0.0', ownership: 'desktop',
     }))
     const install = vi.fn(async () => {})
 
     await expect(seedBundledPlugin({ ...options, install })).resolves.toBe('preserved-user-version')
     expect(install).not.toHaveBeenCalled()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, installedVersion: '1.0.0', ownership: 'user' })
   })
 
@@ -675,11 +691,12 @@ describe('bundled plugin seed', () => {
     const options = await fixture()
     const state = join(options.dshHome, 'bundled-plugins')
     await mkdir(state, { recursive: true })
-    await writeFile(join(state, 'dshmarket.seeded.json'), JSON.stringify({ schema: 1 }))
+    await mkdir(join(state, 'profiles', 'web'), { recursive: true })
+    await writeFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), JSON.stringify({ schema: 1 }))
     const install = successfulInstall(options)
     await expect(seedBundledPlugin({ ...options, repairLegacyMarker: true, install })).resolves.toBe('installed')
     expect(install).toHaveBeenCalledOnce()
-    expect(JSON.parse(await readFile(join(state, 'dshmarket.seeded.json'), 'utf8')))
+    expect(JSON.parse(await readFile(join(state, 'profiles', 'web', 'dshmarket.seeded.json'), 'utf8')))
       .toMatchObject({ schema: 4, packageName: 'dshmarket', ownership: 'desktop-archive' })
   })
 
@@ -700,6 +717,6 @@ describe('bundled plugin seed', () => {
       install,
     })).rejects.toThrow(/integrity mismatch/)
     expect(install).not.toHaveBeenCalled()
-    await expect(readFile(join(options.dshHome, 'bundled-plugins', 'dshmarket.seeded.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(options.dshHome, 'bundled-plugins', 'profiles', 'web', 'dshmarket.seeded.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

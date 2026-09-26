@@ -18,7 +18,7 @@ function exitCode(argv: string[]): number {
   }
 }
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
 describe('parseDshArgs', () => {
   it('routes profile boots and shorthand, handing the rest to the app', () => {
@@ -212,6 +212,12 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['plugin', '--profile', 'Desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
+  })
+
+  it("lets the Electron application's own wiring manage the reserved desktop profile", () => {
+    vi.stubEnv('DSH_DESKTOP_PROFILE_MANAGEMENT', '1')
+    expect(parse(['plugin', '--profile', 'desktop', 'add', 'x']))
+      .toEqual({ mode: 'plugin', profile: 'desktop', args: ['add', 'x'] })
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

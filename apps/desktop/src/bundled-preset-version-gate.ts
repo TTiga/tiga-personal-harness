@@ -6,7 +6,9 @@ import { dirname, join } from 'node:path'
 import { gt, valid } from 'semver'
 
 const SCHEMA = 1
-const FILE = 'desktop-preset-attempt.v1.json'
+// v2: one fresh attempt for the preset retarget to the reserved Desktop profile;
+// v1 records were marked by builds that seeded a profile the Host never booted.
+const FILE = 'desktop-preset-attempt.v2.json'
 
 export class BundledPresetVersionGate {
   readonly #path: string

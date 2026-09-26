@@ -80,29 +80,33 @@ describe('bundled plugin first-start trace', () => {
     expect(first.failure).toBeUndefined()
     for (const entry of entries) {
       const installed = JSON.parse(await readFile(
-        join(dshHome, 'profiles', 'web', 'node_modules', ...entry.packageName.split('/'), 'package.json'), 'utf8',
+        join(dshHome, 'profiles', 'desktop', 'node_modules', ...entry.packageName.split('/'), 'package.json'), 'utf8',
       )) as { name?: string; version?: string }
       expect(installed, entry.packageName).toMatchObject({ name: entry.packageName, version: entry.version })
-      expect(JSON.parse(await readFile(join(dshHome, 'bundled-plugins', `${entry.seedId}.seeded.json`), 'utf8')))
+      expect(JSON.parse(await readFile(
+        join(dshHome, 'bundled-plugins', 'profiles', 'desktop', `${entry.seedId}.seeded.json`), 'utf8',
+      )))
         .toMatchObject({ schema: 4, state: 'installed', installedVersion: entry.version })
     }
 
     // Reviewed native build: the sidebar entry pre-approves node-pty. The
     // profile tree itself never contains node-pty — the harness core carries
     // it — so the observable approval is the merged workspace setting.
-    const workspaceSettings = await readFile(join(dshHome, 'profiles', 'web', 'pnpm-workspace.yaml'), 'utf8')
+    const workspaceSettings = await readFile(join(dshHome, 'profiles', 'desktop', 'pnpm-workspace.yaml'), 'utf8')
     expect(workspaceSettings).toMatch(/(^|\n)\s*node-pty: true/u)
 
     // The user uninstalls one plugin through the same CLI surface the market uses.
-    const environment = { ...process.env, DSH_HOME: dshHome }
+    // The escape env mirrors what the application's own wiring sends: the CLI
+    // reserves the desktop profile for the Electron application.
+    const environment = { ...process.env, DSH_HOME: dshHome, DSH_DESKTOP_PROFILE_MANAGEMENT: '1' }
     await runDesktopHarnessCommand({
       command: process.execPath,
-      args: ['--expose-internals', cliEntry, 'plugin', '--profile', 'web', 'remove', 'dsh-mermaid'],
+      args: ['--expose-internals', cliEntry, 'plugin', '--profile', 'desktop', 'remove', 'dsh-mermaid'],
       env: environment,
       timeoutMs: 5 * 60_000,
       cwd: dshHome,
     })
-    expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
+    expect(existsSync(join(dshHome, 'profiles', 'desktop', 'node_modules', 'dsh-mermaid'))).toBe(false)
 
     // Second start: the pass observes the uninstall and records the tombstone
     // while every retained preset entry stays verified. The sidebar's
@@ -115,8 +119,10 @@ describe('bundled plugin first-start trace', () => {
       expect(second.results?.find(item => item.entry.seedId === entry.seedId)?.result, entry.packageName)
         .toBe('verified')
     }
-    expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
-    expect(JSON.parse(await readFile(join(dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json'), 'utf8')))
+    expect(existsSync(join(dshHome, 'profiles', 'desktop', 'node_modules', 'dsh-mermaid'))).toBe(false)
+    expect(JSON.parse(await readFile(
+      join(dshHome, 'bundled-plugins', 'profiles', 'desktop', 'dsh-mermaid.seeded.json'), 'utf8',
+    )))
       .toMatchObject({ state: 'removed' })
 
     // Third start (a later application version reopens the gate): the
@@ -124,6 +130,6 @@ describe('bundled plugin first-start trace', () => {
     const third = await startDesktopBundledPlugins(startupOptions(dshHome, '0.1.7-trace.2'))
     expect(third.attempted).toBe(true)
     expect(third.results?.find(item => item.entry.seedId === 'dsh-mermaid')?.result).toBe('verified')
-    expect(existsSync(join(dshHome, 'profiles', 'web', 'node_modules', 'dsh-mermaid'))).toBe(false)
+    expect(existsSync(join(dshHome, 'profiles', 'desktop', 'node_modules', 'dsh-mermaid'))).toBe(false)
   }, 30 * 60_000)
 })

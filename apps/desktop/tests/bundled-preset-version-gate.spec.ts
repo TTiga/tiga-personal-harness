@@ -36,14 +36,14 @@ describe('bundled preset version gate', () => {
   it('rejects a damaged marker rather than silently repeating preparation', async () => {
     const { home, gate: current } = await gate()
     await current.markAttempted('0.1.5-rc.2.3')
-    await writeFile(join(home, 'bundled-plugins', 'desktop-preset-attempt.v1.json'), '{ damaged')
+    await writeFile(join(home, 'bundled-plugins', 'desktop-preset-attempt.v2.json'), '{ damaged')
     await expect(current.shouldAttempt('0.1.6-alpha.2.1')).rejects.toThrow(/invalid.*marker/i)
   })
 
   it('stores only the version, with no Profile or command content', async () => {
     const { home, gate: current } = await gate()
     await current.markAttempted('0.1.6-alpha.2.1')
-    const marker = await readFile(join(home, 'bundled-plugins', 'desktop-preset-attempt.v1.json'), 'utf8')
+    const marker = await readFile(join(home, 'bundled-plugins', 'desktop-preset-attempt.v2.json'), 'utf8')
     expect(JSON.parse(marker)).toEqual({ schema: 1, attemptedVersion: '0.1.6-alpha.2.1' })
   })
 })

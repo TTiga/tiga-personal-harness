@@ -80,8 +80,17 @@ function selectProfile(value: string, previous?: string): string {
   return value
 }
 
+/**
+ * The Electron application's own launcher invocations set this to `1`: the
+ * reserved Desktop profile's owner manages it through the same CLI humans use,
+ * while every other invocation keeps the guard. The desktop startup wiring
+ * composes it into the child environment (harnessEnvironment in
+ * apps/desktop/src/bundled-plugin-startup.ts).
+ */
+export const DESKTOP_PROFILE_MANAGEMENT_ENV = 'DSH_DESKTOP_PROFILE_MANAGEMENT'
+
 function rejectElectronProfile(program: Command, profile: string): void {
-  if (profile.toLowerCase() === 'desktop') {
+  if (profile.toLowerCase() === 'desktop' && process.env[DESKTOP_PROFILE_MANAGEMENT_ENV] !== '1') {
     program.error('error: profile "desktop" is managed exclusively by the Electron application')
   }
 }

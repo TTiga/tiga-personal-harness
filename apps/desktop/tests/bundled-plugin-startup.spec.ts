@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -35,9 +35,13 @@ interface FixtureEntry extends Record<string, unknown> {
   readonly archive: string
 }
 
+// The reserved Desktop profile is the one the packaged Host boots (paths.ts),
+// so the bundled preset targets it; 'web' is only meaningful to `dsh web`.
+const PRESET_PROFILE = 'desktop'
+
 async function fixture(plugins: readonly FixtureEntry[] = [
   {
-    seedId: 'dsh-mermaid', packageName: 'dsh-mermaid', version: '0.4.1', profile: 'web',
+    seedId: 'dsh-mermaid', packageName: 'dsh-mermaid', version: '0.4.1', profile: PRESET_PROFILE,
     installPolicy: 'startup', registrySpec: 'dsh-mermaid@0.4.1',
     archive: 'dsh-mermaid-0.4.1.tgz',
   },
@@ -107,8 +111,34 @@ async function fixture(plugins: readonly FixtureEntry[] = [
   }
 }
 
-async function readMarker(dshHome: string, seedId: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(join(dshHome, 'bundled-plugins', `${seedId}.seeded.json`), 'utf8')) as Record<string, unknown>
+/** Seed markers are namespaced per target profile under bundled-plugins/profiles/. */
+async function readMarker(dshHome: string, profile: string, seedId: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(
+    join(dshHome, 'bundled-plugins', 'profiles', profile, `${seedId}.seeded.json`), 'utf8',
+  )) as Record<string, unknown>
+}
+
+/** Materialize one settled entry like a completed prior seed, without running the CLI. */
+async function settleEntry(f: Awaited<ReturnType<typeof fixture>>, entry: FixtureEntry): Promise<void> {
+  await mkdir(join(f.dshHome, 'bundled-plugins'), { recursive: true })
+  await copyFile(join(f.resources, entry.archive), join(f.dshHome, 'bundled-plugins', entry.archive))
+  const profileDirectory = join(f.dshHome, 'profiles', entry.profile)
+  const installed = join(profileDirectory, 'node_modules', entry.packageName)
+  await mkdir(installed, { recursive: true })
+  await writeFile(join(installed, 'package.json'), JSON.stringify({ name: entry.packageName, version: entry.version }))
+  await writeFile(join(profileDirectory, 'package.json'), JSON.stringify({
+    dependencies: { [entry.packageName]: `file:${join(f.dshHome, 'bundled-plugins', entry.archive)}` },
+    dsh: { profile: { bundles: [entry.packageName] } },
+  }))
+  await mkdir(join(f.dshHome, 'bundled-plugins', 'profiles', entry.profile), { recursive: true })
+  await writeFile(
+    join(f.dshHome, 'bundled-plugins', 'profiles', entry.profile, `${entry.seedId}.seeded.json`),
+    `${JSON.stringify({
+      schema: 4, seedId: entry.seedId, packageName: entry.packageName, dependencyName: entry.packageName,
+      handledBundledVersion: entry.version, installedVersion: entry.version, state: 'installed',
+      ownership: 'desktop-archive', sourceIdentity: `desktop-archive:${entry.archive}`,
+    })}\n`,
+  )
 }
 
 describe('desktop bundled plugin startup', () => {
@@ -124,16 +154,65 @@ describe('desktop bundled plugin startup', () => {
     expect(report).toMatchObject({ firstStart: true, attempted: true })
     const invocations = f.installInvocations()
     expect(invocations).toHaveLength(1)
-    expect(invocations[0]?.args).toEqual(expect.arrayContaining(['plugin', '--profile', 'web', 'add', '--save-exact']))
+    expect(invocations[0]?.args).toEqual(expect.arrayContaining(['plugin', '--profile', PRESET_PROFILE, 'add', '--save-exact']))
     // One batch invocation carries every archive together.
     expect(invocations[0]?.args.filter(argument => argument.endsWith('.tgz'))).toHaveLength(1)
     expect(invocations[0]?.env.DSH_HOME).toBe(f.dshHome)
     expect(invocations[0]?.env.ELECTRON_RUN_AS_NODE).toBe('1')
-    expect(await readMarker(f.dshHome, 'dsh-mermaid')).toMatchObject({
+    // The CLI reserves the desktop profile for this application; the seeding
+    // pass identifies itself as that owner (see rejectElectronProfile).
+    expect(invocations[0]?.env.DSH_DESKTOP_PROFILE_MANAGEMENT).toBe('1')
+    expect(await readMarker(f.dshHome, PRESET_PROFILE, 'dsh-mermaid')).toMatchObject({
       schema: 4, state: 'installed', ownership: 'desktop-archive', installedVersion: '0.4.1',
     })
     // The archive was copied into the home state directory before installation.
     expect(await readdir(join(f.dshHome, 'bundled-plugins'))).toContain('dsh-mermaid-0.4.1.tgz')
+  })
+
+  it('treats a pre-created Host profile as a first start', async () => {
+    // The application creates profiles/desktop (web-template bundles) before the
+    // Host boots, so "profile package.json exists" can no longer detect a fresh
+    // preset; the marker namespace is the first-start signal.
+    const f = await fixture()
+    const profile = join(f.dshHome, 'profiles', PRESET_PROFILE)
+    await mkdir(profile, { recursive: true })
+    await writeFile(join(profile, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-desktop', private: true, dependencies: {},
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
+    }))
+    const report = await startDesktopBundledPlugins(f.options())
+    expect(report).toMatchObject({ firstStart: true, attempted: true })
+    expect(f.installInvocations()[0]?.args).toEqual(expect.arrayContaining(['--profile', PRESET_PROFILE]))
+    expect(await readMarker(f.dshHome, PRESET_PROFILE, 'dsh-mermaid')).toMatchObject({ state: 'installed' })
+  })
+
+  it('reseeds into the Host profile regardless of legacy web-profile markers', async () => {
+    // Data directories seeded by the pre-retarget build carry top-level markers
+    // (state=installed) plus a populated web profile. The desktop pass must not
+    // read those markers as its own: it seeds the desktop profile fresh and
+    // leaves the legacy records untouched instead of writing tombstones.
+    const f = await fixture()
+    const webProfile = join(f.dshHome, 'profiles', 'web')
+    await mkdir(join(f.dshHome, 'bundled-plugins'), { recursive: true })
+    await copyFile(join(f.resources, 'dsh-mermaid-0.4.1.tgz'), join(f.dshHome, 'bundled-plugins', 'dsh-mermaid-0.4.1.tgz'))
+    await mkdir(webProfile, { recursive: true })
+    await writeFile(join(webProfile, 'package.json'), JSON.stringify({
+      dependencies: { 'dsh-mermaid': `file:${join(f.dshHome, 'bundled-plugins', 'dsh-mermaid-0.4.1.tgz')}` },
+      dsh: { profile: { bundles: ['dsh-mermaid'] } },
+    }))
+    const legacyMarker = join(f.dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json')
+    await writeFile(legacyMarker, JSON.stringify({
+      schema: 4, seedId: 'dsh-mermaid', packageName: 'dsh-mermaid',
+      handledBundledVersion: '0.4.1', installedVersion: '0.4.1', state: 'installed', ownership: 'desktop-archive',
+    }))
+    const desktopProfile = join(f.dshHome, 'profiles', PRESET_PROFILE)
+    await mkdir(desktopProfile, { recursive: true })
+    await writeFile(join(desktopProfile, 'package.json'), '{}')
+    const report = await startDesktopBundledPlugins(f.options())
+    expect(report).toMatchObject({ firstStart: true, attempted: true })
+    expect(f.installInvocations()[0]?.args).toEqual(expect.arrayContaining(['--profile', PRESET_PROFILE]))
+    expect(await readMarker(f.dshHome, PRESET_PROFILE, 'dsh-mermaid')).toMatchObject({ state: 'installed' })
+    expect(await readFile(legacyMarker, 'utf8')).toContain('"state":"installed"')
   })
 
   it('diagnoses a failed first-start batch without throwing', async () => {
@@ -145,22 +224,34 @@ describe('desktop bundled plugin startup', () => {
     const log = await readFile(join(f.dshHome, 'logs', 'harness.log'), 'utf8')
     expect(log).toMatch(/\[bundled-plugin\] \[error\]/u)
     expect(log).toContain('pnpm exploded')
-    // The failed batch left no profile behind, so the next start still counts
+    // The failed batch left no marker behind, so the next start still counts
     // as a first start and retries the batch instead of the gate path.
     const retried = await startDesktopBundledPlugins(f.options())
     expect(retried).toMatchObject({ firstStart: true, attempted: true })
     expect(retried.failure).toBeUndefined()
-    expect(await readMarker(f.dshHome, 'dsh-mermaid')).toMatchObject({ state: 'installed' })
+    expect(await readMarker(f.dshHome, PRESET_PROFILE, 'dsh-mermaid')).toMatchObject({ state: 'installed' })
   })
 
   it('attempts a per-entry pass once per application version', async () => {
-    const f = await fixture()
-    await mkdir(join(f.dshHome, 'profiles', 'web'), { recursive: true })
-    await writeFile(join(f.dshHome, 'profiles', 'web', 'package.json'), '{}')
+    const settled = {
+      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
+      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
+    }
+    const f = await fixture([
+      settled,
+      {
+        seedId: 'added-later', packageName: 'added-later', version: '2.0.0', profile: PRESET_PROFILE,
+        installPolicy: 'startup', registrySpec: 'added-later@2.0.0', archive: 'added-later-2.0.0.tgz',
+      },
+    ])
+    // One settled entry defeats first-start; the entry a later version added
+    // reaches the gate pass and installs per-entry.
+    await settleEntry(f, settled)
     const report = await startDesktopBundledPlugins(f.options())
     expect(report).toMatchObject({ firstStart: false, attempted: true })
-    expect(report.results?.[0]).toMatchObject({ result: 'installed' })
-    expect(await readFile(join(f.dshHome, 'bundled-plugins', 'desktop-preset-attempt.v1.json'), 'utf8'))
+    expect(report.results?.find(item => item.entry.seedId === 'settled')?.result).toBe('verified')
+    expect(report.results?.find(item => item.entry.seedId === 'added-later')?.result).toBe('installed')
+    expect(await readFile(join(f.dshHome, 'bundled-plugins', 'desktop-preset-attempt.v2.json'), 'utf8'))
       .toContain('"attemptedVersion":"0.1.7-test.1"')
     // The same version never retries; settled entries stay verified.
     const again = await startDesktopBundledPlugins(f.options())
@@ -168,12 +259,14 @@ describe('desktop bundled plugin startup', () => {
   })
 
   it('skips the pass when the version marker is damaged', async () => {
-    const f = await fixture()
-    const profile = join(f.dshHome, 'profiles', 'web')
-    await mkdir(join(profile), { recursive: true })
-    await writeFile(join(profile, 'package.json'), '{}')
-    await mkdir(join(f.dshHome, 'bundled-plugins'), { recursive: true })
-    await writeFile(join(f.dshHome, 'bundled-plugins', 'desktop-preset-attempt.v1.json'), '{ damaged')
+    const settled = {
+      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
+      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
+    }
+    const f = await fixture([settled])
+    // One marker keeps this off the first-start path so the damaged gate is reached.
+    await settleEntry(f, settled)
+    await writeFile(join(f.dshHome, 'bundled-plugins', 'desktop-preset-attempt.v2.json'), '{ damaged')
     const report = await startDesktopBundledPlugins(f.options())
     expect(report).toMatchObject({ attempted: false, gateSkipped: 'marker-unavailable' })
     expect(f.runCommand).not.toHaveBeenCalled()
@@ -182,38 +275,45 @@ describe('desktop bundled plugin startup', () => {
   it('never reinstalls an entry whose uninstall left a tombstone', async () => {
     const f = await fixture()
     // A prior release installed it, then the user uninstalled it.
-    const profile = join(f.dshHome, 'profiles', 'web')
-    await mkdir(join(f.dshHome, 'bundled-plugins'), { recursive: true })
+    const profile = join(f.dshHome, 'profiles', PRESET_PROFILE)
+    await mkdir(join(f.dshHome, 'bundled-plugins', 'profiles', PRESET_PROFILE), { recursive: true })
     await mkdir(profile, { recursive: true })
     await writeFile(join(profile, 'package.json'), '{}')
-    await writeFile(join(f.dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json'), JSON.stringify({
-      schema: 4, seedId: 'dsh-mermaid', packageName: 'dsh-mermaid',
-      handledBundledVersion: '0.4.1', state: 'removed', ownership: 'desktop-archive',
-    }))
+    await writeFile(
+      join(f.dshHome, 'bundled-plugins', 'profiles', PRESET_PROFILE, 'dsh-mermaid.seeded.json'),
+      JSON.stringify({
+        schema: 4, seedId: 'dsh-mermaid', packageName: 'dsh-mermaid',
+        handledBundledVersion: '0.4.1', state: 'removed', ownership: 'desktop-archive',
+      }),
+    )
     const report = await startDesktopBundledPlugins(f.options())
     expect(report.attempted).toBe(true)
     // A settled tombstone takes the startup fast path; no install runs and
     // the durable marker keeps recording the user's uninstall.
     expect(report.results?.[0]?.result).toBe('verified')
     expect(f.installInvocations()).toHaveLength(0)
-    expect(await readFile(join(f.dshHome, 'bundled-plugins', 'dsh-mermaid.seeded.json'), 'utf8'))
-      .toContain('"state":"removed"')
+    expect(await readFile(
+      join(f.dshHome, 'bundled-plugins', 'profiles', PRESET_PROFILE, 'dsh-mermaid.seeded.json'), 'utf8',
+    )).toContain('"state":"removed"')
   })
 
   it('records a failure for cooldown and continues with the remaining entries', async () => {
+    const settled = {
+      seedId: 'settled', packageName: 'settled', version: '1.0.0', profile: PRESET_PROFILE,
+      installPolicy: 'startup', registrySpec: 'settled@1.0.0', archive: 'settled-1.0.0.tgz',
+    }
     const f = await fixture([
+      settled,
       {
-        seedId: 'first', packageName: 'first', version: '1.0.0', profile: 'web',
+        seedId: 'first', packageName: 'first', version: '1.0.0', profile: PRESET_PROFILE,
         installPolicy: 'startup', registrySpec: 'first@1.0.0', archive: 'first-1.0.0.tgz',
       },
       {
-        seedId: 'second', packageName: 'second', version: '2.0.0', profile: 'web',
+        seedId: 'second', packageName: 'second', version: '2.0.0', profile: PRESET_PROFILE,
         installPolicy: 'startup', registrySpec: 'second@2.0.0', archive: 'second-2.0.0.tgz',
       },
     ])
-    const profile = join(f.dshHome, 'profiles', 'web')
-    await mkdir(profile, { recursive: true })
-    await writeFile(join(profile, 'package.json'), '{}')
+    await settleEntry(f, settled)
     const delegate = f.runCommand
     const mixed = vi.fn(async (invocation: DesktopHarnessCommandInvocation) => {
       if (invocation.args.some(argument => argument.includes('first-1.0.0.tgz'))) {
@@ -222,6 +322,7 @@ describe('desktop bundled plugin startup', () => {
       return delegate(invocation)
     })
     const report = await startDesktopBundledPlugins(f.options({ runCommand: mixed }))
+    expect(report.results?.find(item => item.entry.seedId === 'settled')?.result).toBe('verified')
     expect(report.results?.find(item => item.entry.seedId === 'first')?.result).toBeUndefined()
     expect(report.results?.find(item => item.entry.seedId === 'second')?.result).toBe('installed')
     const failures = JSON.parse(await readFile(
@@ -249,14 +350,17 @@ describe('desktop bundled plugin startup', () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-bundled-approvals-'))
     roots.push(root)
     const home = join(root, 'home')
-    await mergeProfileBuildApprovals(home, 'web', ['node-pty'])
-    const settings = await readFile(join(home, 'profiles', 'web', 'pnpm-workspace.yaml'), 'utf8')
+    await mergeProfileBuildApprovals(home, PRESET_PROFILE, ['node-pty'])
+    const settings = await readFile(join(home, 'profiles', PRESET_PROFILE, 'pnpm-workspace.yaml'), 'utf8')
     // A file created before the plugin CLI initializes the profile must carry
     // the same workspace template, not pnpm-default settings.
     expect(settings).toContain('node-pty: true')
     expect(settings).toContain('autoInstallPeers: false')
     expect(settings).toContain('nodeLinker: hoisted')
-    expect(JSON.parse(await readFile(join(home, 'profiles', 'web', 'package.json'), 'utf8')))
+    // The reserved Desktop profile carries the web template's bundles: seeding
+    // can run before applyRelease creates the profile, and the generic fallback
+    // (base bundle only) would leave a profile the Host cannot boot as the app.
+    expect(JSON.parse(await readFile(join(home, 'profiles', PRESET_PROFILE, 'package.json'), 'utf8')))
       .toMatchObject({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } } })
   })
 })
