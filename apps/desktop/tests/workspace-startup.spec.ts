@@ -101,6 +101,10 @@ vi.mock('../src/host-process.ts', () => ({
     stop = state.stopHost
   },
 }))
+// Preset seeding is its own seam; startup here exercises only window orchestration.
+vi.mock('../src/bundled-plugin-startup.ts', () => ({
+  startDesktopBundledPlugins: vi.fn(async () => ({ firstStart: false, attempted: false })),
+}))
 vi.mock('../src/workspace-bootstrap.ts', () => ({
   connectWorkspaceBootstrap: async () => ({
     readLocalePreference: async () => {

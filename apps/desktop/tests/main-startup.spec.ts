@@ -278,6 +278,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }) }
 })
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
+// Preset seeding writes to the real harness home; startup here stubs the seam.
+vi.mock('../src/bundled-plugin-startup.ts', () => ({
+  startDesktopBundledPlugins: vi.fn(async () => ({ firstStart: false, attempted: false })),
+}))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {

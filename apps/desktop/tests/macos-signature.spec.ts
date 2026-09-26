@@ -44,9 +44,12 @@ describe('desktop macOS release signature', () => {
     expect(config.protocols).toEqual([{ name: 'DeepSeek Harness', schemes: ['dsh'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
-    expect(config.extraResources).toHaveLength(2)
+    expect(config.extraResources).toHaveLength(3)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
+    // Bundled preset archives seed the first start offline from resources.
+    expect(config.extraResources[1]?.to).toBe('bundled-plugins')
+    expect(portablePath(config.extraResources[1]?.from ?? '')).toContain('/apps/desktop/bundled-plugins')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)
     if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
       throw new Error('desktop DSH resources must use electron-builder file mappings')
