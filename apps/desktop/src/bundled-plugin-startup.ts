@@ -11,6 +11,7 @@ import { BundledPluginInstaller, parseBundledPluginManifest, resolveBundledPlugi
 import { BundledPluginStartupCooldown } from './bundled-plugin-cooldown.ts'
 import { BundledPresetVersionGate } from './bundled-preset-version-gate.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
+import { DEFAULT_PROFILE_BUNDLES, initProfile, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
 
 /** Upper bound for one seeded preset installation, shared with the upstream mechanism. */
 export const BUNDLED_PLUGIN_INSTALL_TIMEOUT_MS = 10 * 60_000
@@ -176,7 +177,14 @@ export async function mergeProfileBuildApprovals(
   packageNames: readonly string[],
 ): Promise<void> {
   if (packageNames.length === 0) return
-  const path = join(dshHome, 'profiles', profile, 'pnpm-workspace.yaml')
+  const profileDirectory = join(dshHome, 'profiles', profile)
+  // A pre-install approval can run before the plugin CLI first creates the
+  // profile; initialize it the same way the CLI would (runPluginCommand's
+  // own guarded init) so the approval cannot leave the profile with pnpm's
+  // default (auto-installed peer) behavior. initProfile only creates missing
+  // files, and the startup pass owns this profile until the CLI runs.
+  initProfile(profileDirectory, PROFILE_TEMPLATES[profile]?.bundles ?? DEFAULT_PROFILE_BUNDLES)
+  const path = join(profileDirectory, 'pnpm-workspace.yaml')
   let text: string
   try { text = await readFile(path, 'utf8') }
   catch (error) {
