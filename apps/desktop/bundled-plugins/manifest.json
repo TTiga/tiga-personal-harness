@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "plugins": [
+    {
+      "seedId": "dsh-mermaid",
+      "packageName": "dsh-mermaid",
+      "version": "0.4.1",
+      "profile": "web",
+      "installPolicy": "startup",
+      "registrySpec": "dsh-mermaid@0.4.1",
+      "archive": "dsh-mermaid-0.4.1.tgz",
+      "integrity": "sha512-w415yRAbeZe0cRLD0aKIF33K6a8gZNZx83ciLUqdliyj1/C3PAzekrbD6UUIQO3AT26HFXWbtMPtXAEfZvSufg=="
+    }
+  ]
+}

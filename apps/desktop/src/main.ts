@@ -20,6 +20,8 @@ import {
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { startDesktopBundledPlugins } from './bundled-plugin-startup.ts'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
@@ -463,6 +465,20 @@ async function main(): Promise<void> {
   const reconcileBackend = (): Promise<void> => {
     startup ??= (async () => {
       await navigateMain(applicationUrl)
+      // Bundled presets install before the Host starts: the seed writes the web
+      // profile through the plugin CLI while no other package-manager process
+      // can hold it, and durable markers keep later starts idempotent.
+      await startDesktopBundledPlugins({
+        packaged: !development,
+        resourcesPath: process.resourcesPath,
+        sourceRoot: fileURLToPath(new URL('../../..', import.meta.url)),
+        dshHome: resolveDshHome(),
+        appVersion: app.getVersion(),
+        nodeExecutable: resources.node,
+        dshDirectory: resources.dsh,
+        nodeBin: resources.nodeBin,
+        isQuitting,
+      })
       await backend.start(async () => {
         await manager.applyRelease()
       })
