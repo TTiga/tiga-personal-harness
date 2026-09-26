@@ -13,7 +13,7 @@ const POSIX_SHIM = '#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexec "$DSH_DESKTOP
  * never read these files.
  * @param binDirectory Packaged runtime bin directory that already holds the node launchers.
  */
-export function writeRuntimePackageManagerShims(binDirectory: string): void {
+export function writeRuntimePnpmLaunchers(binDirectory: string): void {
   writeFileSync(join(binDirectory, 'pnpm.cmd'), WINDOWS_SHIM)
   writeFileSync(join(binDirectory, 'pnpm'), POSIX_SHIM)
   chmodSync(join(binDirectory, 'pnpm'), 0o755)
