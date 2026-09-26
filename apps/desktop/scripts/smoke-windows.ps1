@@ -20,6 +20,7 @@ try {
   $directoryArguments = @{ Makensis = $Makensis; SevenZip = $SevenZip }
   if ($FrameLibrary) { $directoryArguments.FrameLibrary = $FrameLibrary }
   & (Join-Path $PSScriptRoot 'smoke-installer-directories.ps1') @directoryArguments
+  & (Join-Path $PSScriptRoot 'smoke-installer-data-home.ps1') -Makensis $Makensis
   $payload = Join-Path $scratch 'payload'
   New-Item -ItemType Directory -Path $payload | Out-Null
   [System.IO.File]::WriteAllText((Join-Path $payload 'locked.txt'), 'new runtime')

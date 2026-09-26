@@ -21,6 +21,7 @@ ManifestDPIAware true
   !endif
   !ifndef BUILD_UNINSTALLER
     !include "${INSTALLER_SOURCE_DIR}\theme.nsh"
+    !include "${INSTALLER_SOURCE_DIR}\data-home.nsh"
     !include "${INSTALLER_SOURCE_DIR}\pages.nsh"
     !include "${INSTALLER_SOURCE_DIR}\lifecycle.nsh"
     Function InstallerCheckAppRunning
@@ -45,6 +46,7 @@ ManifestDPIAware true
   StrCpy $hasPerMachineInstallation 0
   StrCpy $hasPerUserInstallation 1
   StrCpy $InstallerPath $INSTDIR
+  Call InstallerPrefillDataHome
   StrCpy $InstallerTheme "auto"
   ${GetParameters} $0
   ${GetOptions} $0 "/THEME=" $1
@@ -85,6 +87,7 @@ ManifestDPIAware true
 
 !macro customWelcomePage
   Page custom InstallerWelcome InstallerWelcomeLeave
+  Page custom InstallerDataDirectory InstallerDataDirectoryLeave
 !macroend
 
 !macro customUnInstall
@@ -209,6 +212,7 @@ ManifestDPIAware true
   !insertmacro dshFinishDirectories
   ; Standard uninstall-entry metadata read by inventory tools; the upstream template records it only under its private key.
   WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" InstallLocation "$INSTDIR"
+  Call InstallerApplyDataHome
   ${If} $0 == 1
     SetErrors
   ${Else}
