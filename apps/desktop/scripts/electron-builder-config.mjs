@@ -130,7 +130,6 @@ export function createElectronBuilderConfig(
       'lib/main.js',
       'lib/preload-app.cjs',
       'lib/preload-mandatory.cjs',
-      'lib/preload-platform-account.cjs',
       'lib/preload-update-dialog.cjs',
       'renderer/**/*',
       'package.json',

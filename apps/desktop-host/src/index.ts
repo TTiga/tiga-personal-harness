@@ -1,19 +1,43 @@
 /** Launch the Desktop profile through the Web application and report its URL to Electron. */
 
+import { writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { inspect } from 'node:util'
 import { loadLayeredEnv, loadProfileDirectory, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import * as desktopOffice from './office.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
-import { installPlatformSessionPublisher } from './platform-session.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+
+/**
+ * Desktop-only composition overlay: the account login surfaces are retired from
+ * this profile. Applied as a `--patch` layer, so it stacks over the bundle and
+ * user layers of the Desktop profile alone; the web, headless, and sdk profiles
+ * keep their own rosters untouched. The Web e2e lane mirrors this text as
+ * `apps/web/tests/fixtures/desktop-account-sweep.patch.yml` for its
+ * desktop-marked scenarios, and the mirror is pinned by
+ * `tests/account-sweep.spec.ts`.
+ */
+export const ACCOUNT_SWEEP_PATCH = `# dsh desktop: account login surfaces are retired from the Desktop profile.
+# Launcher-owned like cordis.yml: rewritten on every boot and applied after the
+# bundle and user layers, so these rows never mount here.
+- id: deepseek-account
+  disabled: true
+
+- id: llm-deepseek-account
+  disabled: true
+
+- id: ui-settings-account
+  disabled: true
+
+- id: account-controller
+  disabled: true
+`
 
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
@@ -22,11 +46,13 @@ async function main(): Promise<void> {
   const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   reportSkippedBundles('dsh', profile)
+  const accountSweepPatch = join(projectDir, 'account-sweep.patch.yml')
+  writeFileSync(accountSweepPatch, ACCOUNT_SWEEP_PATCH)
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: 'desktop',
     resolvedProfile: { profile, installAnchor },
-    patchFiles: [],
+    patchFiles: [accountSweepPatch],
     args: ['--no-open', '--port', '19387'],
     ...(process.argv[5] === undefined ? {} : {
       packageManager: {
@@ -96,9 +122,6 @@ async function main(): Promise<void> {
     runtimeDir,
     source: process.argv[4] ?? join(runtimeDir, '..', 'runtime', 'primary-runtime'),
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
-  })
-  installPlatformSessionPublisher(ctx, (session) => {
-    if (process.connected) process.send?.({ type: 'platform-session', session })
   })
   const url = ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`)
   if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })

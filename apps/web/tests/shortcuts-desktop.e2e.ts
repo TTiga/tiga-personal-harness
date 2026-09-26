@@ -10,7 +10,7 @@ import { initialShortcutConfig, parseShortcutDefinitions, parseShortcutEdit } fr
 import type { DesktopShortcutInput, DesktopShortcutsApi, ShortcutCommandId, ShortcutRevision } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { desktopKeybindings } from '../../desktop/src/keybindings.ts'
 import { compareOrRefreshGolden, launchWebScaffold, seedSession, watchConsole, webSnapshotMode } from './scaffold.ts'
-import { writeComposerDraft } from './support.ts'
+import { DESKTOP_ACCOUNT_SWEEP, writeComposerDraft } from './support.ts'
 
 declare global {
   interface Window {
@@ -32,7 +32,7 @@ it.each([
   let snapshot = initialShortcutConfig()
   const persistence = desktopKeybindings(userData, platform, (value) => { snapshot = value })
   try {
-    const scaffold = await launchWebScaffold({ developerTools: false })
+    const scaffold = await launchWebScaffold({ developerTools: false, extraOverlayPath: DESKTOP_ACCOUNT_SWEEP })
     try {
       await seedSession(scaffold, await readFile(seed, 'utf8'), SessionId('desktop-shortcuts-source'))
       const browser = await chromium.launch()

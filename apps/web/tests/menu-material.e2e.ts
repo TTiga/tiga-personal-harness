@@ -1,10 +1,11 @@
-/** Account and Session menus share material and keep macOS backings aligned and scoped. */
+/** Session menus and the Settings dialog share material and keep macOS backings aligned and scoped. */
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import { chromium, type Locator } from 'playwright'
+import { chromium, type Locator, type Page } from 'playwright'
 import { expect, it, onTestFinished } from 'vitest'
 import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession, webSnapshotMode } from './scaffold.ts'
+import { DESKTOP_ACCOUNT_SWEEP } from './support.ts'
 
 const expected = fileURLToPath(new URL('./expected/menu-material', import.meta.url))
 const seed = new URL('../../../snapshots/web/seeded-history/session.v3.jsonl', import.meta.url)
@@ -17,8 +18,18 @@ async function material(menu: Locator) {
   })
 }
 
+/** Open the first session's actions menu: the shared menu material specimen. */
+async function openSessionMenu(page: Page): Promise<Locator> {
+  const action = page.locator('button[aria-label^="Session actions for "]').first()
+  await action.locator('xpath=ancestor::*[@role="treeitem"][1]').hover()
+  await action.click()
+  const menu = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: 'Rename', exact: true }) })
+  await menu.waitFor()
+  return menu
+}
+
 it('shares menu transparency and blur across palettes and follows native menu bounds', async () => {
-  const scaffold = await launchWebScaffold({})
+  const scaffold = await launchWebScaffold({ extraOverlayPath: DESKTOP_ACCOUNT_SWEEP })
   onTestFinished(() => scaffold.close())
   await seedSession(scaffold, await readFile(seed, 'utf8'), 'menu-material-session')
   const browser = await chromium.launch()
@@ -28,8 +39,12 @@ it('shares menu transparency and blur across palettes and follows native menu bo
     Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } })
   })
   await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-  const account = page.getByRole('button', { name: 'Account menu', exact: true })
-  await account.waitFor()
+  const ungrouped = page.getByText('Ungrouped', { exact: true })
+  const group = ungrouped.locator('xpath=ancestor::*[@aria-expanded][1]')
+  await group.waitFor()
+  if (await group.getAttribute('aria-expanded') !== 'true') await ungrouped.click()
+  const settings = page.getByRole('button', { name: 'Settings', exact: true })
+  await settings.waitFor()
 
   const results: Record<string, Awaited<ReturnType<typeof material>>> = {}
   const masks: Record<string, { fill: string; blur: string }> = {}
@@ -49,9 +64,7 @@ it('shares menu transparency and blur across palettes and follows native menu bo
       expect(overlayFill).toBe(platform === 'darwin'
         ? dark ? 'rgba(48, 49, 54, 0.94)' : 'rgba(248, 249, 250, 0.94)'
         : dark ? 'rgba(67, 69, 74, 0.45)' : 'rgba(248, 249, 250, 0.58)')
-      await account.click()
-      const menu = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: 'Settings', exact: true }) })
-      await menu.waitFor()
+      const menu = await openSessionMenu(page)
       const appearance = await material(menu)
       expect(appearance).toMatchObject({
         fill: dark ? 'rgba(67, 69, 74, 0.45)' : 'rgba(248, 249, 250, 0.58)',
@@ -78,33 +91,24 @@ it('shares menu transparency and blur across palettes and follows native menu bo
       }
       await page.keyboard.press('Escape')
       await expect.poll(() => backing.count()).toBe(0)
-      await account.click()
-      await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
-      const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-      await settings.waitFor()
-      const mask = await settings.locator('..').locator(':scope > [aria-hidden="true"]').evaluate((node) => {
+      await settings.click()
+      const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
+      await dialog.waitFor()
+      const mask = await dialog.locator('..').locator(':scope > [aria-hidden="true"]').evaluate((node) => {
         const style = getComputedStyle(node)
         return { fill: style.backgroundColor, blur: style.backdropFilter }
       })
       expect(mask).toEqual({ fill: dark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.24)', blur: 'none' })
       masks[`${platform}-${dark ? 'dark' : 'light'}`] = mask
       await page.keyboard.press('Escape')
-      await settings.waitFor({ state: 'hidden' })
+      await dialog.waitFor({ state: 'hidden' })
     }
   }
   await compareOrRefreshGolden(join(expected, 'materials.expected.json'), JSON.stringify(results, null, 2), webSnapshotMode())
   await compareOrRefreshGolden(join(expected, 'modal-masks.expected.json'), JSON.stringify(masks, null, 2), webSnapshotMode())
 
-  const ungrouped = page.getByText('Ungrouped', { exact: true })
-  const group = ungrouped.locator('xpath=ancestor::*[@aria-expanded][1]')
-  await group.waitFor()
-  if (await group.getAttribute('aria-expanded') !== 'true') await ungrouped.click()
-  const action = page.locator('button[aria-label^="Session actions for "]').first()
-  await action.locator('xpath=ancestor::*[@role="treeitem"][1]').hover()
-  await action.click()
-  const sessionMenu = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: 'Rename', exact: true }) })
-  await sessionMenu.waitFor()
-  expect(await material(sessionMenu)).toEqual(results['darwin-dark'])
+  const menu = await openSessionMenu(page)
+  expect(await material(menu)).toEqual(results['darwin-dark'])
   await compareOrRefreshGolden(join(expected, 'session-menu.expected.md'),
     await captureStableAria(page, '[role="menu"]', scaffold.workspaceCwd), webSnapshotMode())
   await page.keyboard.press('Escape')

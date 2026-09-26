@@ -44,7 +44,7 @@ export default defineConfig([
     clean: false,
     deps: { neverBundle: ['electron'] },
   },
-  ...(['preload-app', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
+  ...(['preload-app', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],
